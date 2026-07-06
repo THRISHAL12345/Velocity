@@ -20,6 +20,7 @@ import json
 import random
 import statistics
 import time
+import sys
 from pathlib import Path
 
 
@@ -262,10 +263,12 @@ async def run_benchmark(concurrency: int, iterations: int, warmup: int) -> dict:
 
 async def main():
     """Run benchmarks at all concurrency levels."""
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8')
     concurrency_levels = [1, 10, 100, 1000]
     warmup = 5
     iterations = 50
-    output_dir = Path("../../results/raw")
+    output_dir = Path(__file__).parent.parent.parent / "results" / "raw"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     print("\n📡 Raw MCP Baseline Benchmark")
