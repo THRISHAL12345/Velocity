@@ -7,5 +7,5 @@ license.workspace = true
 description = "Mock tool executors for the Velocity runtime benchmarks"
 
 [dependencies]
-tokio = { version = "1", features = ["time"] }
+tokio = { version = "1", features = ["time", "macros", "rt-multi-thread"] }
 rand = "0.8"
