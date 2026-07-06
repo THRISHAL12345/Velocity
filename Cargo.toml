@@ -1,0 +1,14 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/velocity-protocol",
+    "crates/velocity-core",
+    "crates/velocity-tools",
+    "crates/velocity-bench",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Thrishal Doma"]
+license = "MIT"

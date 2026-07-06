@@ -1,0 +1,18 @@
+[package]
+name = "velocity-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Worker pool, async scheduler, and transport layer for the Velocity runtime"
+
+[dependencies]
+velocity-protocol = { path = "../velocity-protocol" }
+velocity-tools = { path = "../velocity-tools" }
+tokio = { version = "1", features = ["full"] }
+thiserror = "2"
+tracing = "0.1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full", "test-util"] }
+tracing-subscriber = "0.3"

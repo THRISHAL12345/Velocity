@@ -1,0 +1,17 @@
+[package]
+name = "velocity-protocol"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Binary wire protocol codec for the Velocity runtime"
+
+[dependencies]
+thiserror = "2"
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "codec_bench"
+harness = false
