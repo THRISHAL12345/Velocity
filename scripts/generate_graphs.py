@@ -191,6 +191,8 @@ def generate_plots(results: dict, graphs_dir: Path):
         plt.tight_layout()
         plt.savefig(graphs_dir / "hft_latency_vs_concurrency.png", dpi=300)
         plt.savefig(graphs_dir / "hft_latency_vs_concurrency.svg")
+        plt.savefig(graphs_dir / "latency_vs_concurrency_hft.png", dpi=300)
+        plt.savefig(graphs_dir / "latency_vs_concurrency_hft.svg")
         plt.close()
 
     # ─── Grouped Bar Charts per Concurrency Level (process_order) ────────────
@@ -224,6 +226,39 @@ def generate_plots(results: dict, graphs_dir: Path):
         plt.tight_layout()
         plt.savefig(graphs_dir / f"bar_chart_c{cc}.png", dpi=300)
         plt.savefig(graphs_dir / f"bar_chart_c{cc}.svg")
+        plt.close()
+
+    # ─── Grouped Bar Charts per Concurrency Level (hft_tick) ─────────────────
+    for cc in hft_cc:
+        contenders_present = []
+        for c in ["velocity", "langgraph", "raw_mcp"]:
+            pool = 64 if c == "velocity" else 0
+            if (c, "hft_tick", pool, cc) in results:
+                contenders_present.append(c)
+        if not contenders_present:
+            continue
+
+        x = np.arange(len(contenders_present))
+        width = 0.25
+
+        p50_vals = [results[(c, "hft_tick", 64 if c == "velocity" else 0, cc)]["task_stats"]["p50_us"] / 1000.0 for c in contenders_present]
+        p95_vals = [results[(c, "hft_tick", 64 if c == "velocity" else 0, cc)]["task_stats"]["p95_us"] / 1000.0 for c in contenders_present]
+        p99_vals = [results[(c, "hft_tick", 64 if c == "velocity" else 0, cc)]["task_stats"]["p99_us"] / 1000.0 for c in contenders_present]
+
+        plt.figure(figsize=(9, 5))
+        plt.bar(x - width, p50_vals, width, label="p50", color="#3498db")
+        plt.bar(x, p95_vals, width, label="p95", color="#f39c12")
+        plt.bar(x + width, p99_vals, width, label="p99", color="#e74c3c")
+
+        plt.xlabel("Contender", fontsize=12, labelpad=10)
+        plt.ylabel("Task Latency (ms)", fontsize=12, labelpad=10)
+        plt.title(f"Task Completion Latency Breakdown (hft_tick, Concurrency = {cc})", fontsize=14, pad=15, fontweight="bold")
+        plt.xticks(x, [labels.get(c, c) for c in contenders_present], fontsize=11)
+        plt.legend(fontsize=11, frameon=True)
+        plt.grid(True, axis="y", ls="--", alpha=0.5)
+        plt.tight_layout()
+        plt.savefig(graphs_dir / f"bar_chart_hft_c{cc}.png", dpi=300)
+        plt.savefig(graphs_dir / f"bar_chart_hft_c{cc}.svg")
         plt.close()
 
 
@@ -335,6 +370,7 @@ def generate_text_report(results: dict, output_path: Path):
     lines.append("## 5. Experiment 3: Sub-millisecond HFT Profile (`hft_tick`)\n")
     lines.append("In real-time trading and robotics control loops, tool I/O completes in microseconds. At this scale, standard framework serialization and scheduling overheads become the primary bottleneck.\n")
     lines.append("![HFT Latency vs Concurrency](./graphs/hft_latency_vs_concurrency.png)\n")
+    lines.append("![HFT Latency vs Concurrency Alt](./graphs/latency_vs_concurrency_hft.png)\n")
     lines.append("| Concurrency | Velocity p99 (μs) | LangGraph p99 (μs) | Raw MCP p99 (μs) | Velocity vs LangGraph | Velocity vs Raw MCP |")
     lines.append("|---|---|---|---|---|---|")
     hft_cc = sorted(set(cc for (_, p, _, cc) in results.keys() if p == "hft_tick"))
@@ -348,7 +384,22 @@ def generate_text_report(results: dict, output_path: Path):
         lg_ratio = f"{lg_val/v_val:.1f}x" if v_val > 0 and lg_val > 0 else "N/A"
         m_ratio = f"{m_val/v_val:.1f}x" if v_val > 0 and m_val > 0 else "N/A"
         lines.append(f"| {cc} | {v_val:,.0f} | {lg_val:,.0f} | {m_val:,.0f} | **{lg_ratio}** | **{m_ratio}** |")
-    lines.append("\n### Analysis: Protocol & Scheduler Dominance\n")
+    lines.append("\n### Detailed HFT Concurrency Breakdown\n")
+    for cc in hft_cc:
+        lines.append(f"#### HFT Concurrency = {cc}\n")
+        lines.append(f"![HFT Bar Chart Concurrency {cc}](./graphs/bar_chart_hft_c{cc}.png)\n")
+        lines.append("| Contender | Pool Size | p50 (μs) | p95 (μs) | p99 (μs) | Max (μs) | Mean (μs) | Cold Start (μs) |")
+        lines.append("|-----------|-----------|----------|----------|----------|----------|-----------|-----------------|")
+        for c in ["velocity", "langgraph", "raw_mcp"]:
+            pool = 64 if c == "velocity" else 0
+            k = (c, "hft_tick", pool, cc)
+            if k in results:
+                s = results[k]["task_stats"]
+                cold = results[k].get("cold_start_us", 0)
+                pool_str = str(pool) if pool > 0 else "Unbounded"
+                lines.append(f"| {c} | {pool_str} | {s['p50_us']:.0f} | {s['p95_us']:.0f} | {s['p99_us']:.0f} | {s['max_us']:.0f} | {s['mean_us']:.0f} | {cold:.0f} |")
+        lines.append("")
+    lines.append("### Analysis: Protocol & Scheduler Dominance\n")
     lines.append("Under the `hft_tick` profile, Velocity demonstrates consistent superiority across all concurrency levels. When tool execution takes only 50–500μs, LangGraph's state checkpointing and Python JSON serialization consume more CPU time than the actual tool work. Velocity's binary wire protocol (<5μs codec round-trip) and overlapped DAG scheduling deliver the low-latency guarantees required by high-performance systems.\n")
 
     # Section 6: Systems Architecture Analysis
