@@ -19,7 +19,7 @@ import numpy as np
 
 def load_results(results_dir: Path) -> dict:
     """Load all JSON result files from the results directory.
-    
+
     Returns a dictionary indexed by (contender, profile, pool_size, concurrency).
     For files where pool_size is not explicitly set or unconstrained, we standardize:
     - velocity default is 64
@@ -35,7 +35,7 @@ def load_results(results_dir: Path) -> dict:
             contender = "raw_mcp_capped"
         elif contender == "raw_mcp_bounded":
             contender = "raw_mcp_capped"
-        
+
         profile = data.get("profile", "process_order")
         pool_size = data.get("pool_size", 0)
         if contender == "velocity" and pool_size == 0:
@@ -43,7 +43,7 @@ def load_results(results_dir: Path) -> dict:
         concurrency = data.get("concurrency", 0)
         if concurrency == 0:
             continue
-        
+
         key = (contender, profile, pool_size, concurrency)
         results[key] = data
     return results
@@ -125,7 +125,7 @@ def generate_plots(results: dict, graphs_dir: Path):
     pool_sizes = sorted(set(ps for (c, p, ps, cc) in results.keys() if p == "process_order" and cc == 1000 and ps > 0))
     if pool_sizes:
         plt.figure(figsize=(9, 6))
-        
+
         # Velocity curve
         v_x, v_y = [], []
         for ps in pool_sizes:
@@ -315,7 +315,7 @@ def generate_text_report(results: dict, output_path: Path):
     # Section 3: Standard Workload Results
     lines.append("## 3. Experiment 1: Standard Web-App Workload (`process_order`)\n")
     lines.append("![Latency vs Concurrency](./graphs/latency_vs_concurrency.png)\n")
-    
+
     cc_levels = get_concurrency_levels(results, "process_order")
     for cc in cc_levels:
         lines.append(f"### Concurrency = {cc}\n")
@@ -338,11 +338,11 @@ def generate_text_report(results: dict, output_path: Path):
     lines.append("![Pool Size Crossover](./graphs/pool_size_vs_p99_crossover.png)\n")
     lines.append("| Pool Size / Semaphore Cap | Velocity p99 (μs) | Fair-Capped MCP p99 (μs) | Unbounded MCP p99 (μs) | Avg Queue Wait (μs) | Construction (ms) | Velocity vs Capped MCP |")
     lines.append("|---|---|---|---|---|---|---|")
-    
+
     pool_sizes = sorted(set(ps for (c, p, ps, cc) in results.keys() if p == "process_order" and cc == 1000 and ps > 0))
     unbound_mcp_k = ("raw_mcp", "process_order", 0, 1000)
     unbound_val = results[unbound_mcp_k]["task_stats"]["p99_us"] if unbound_mcp_k in results else 0
-    
+
     crossover_ps = None
     capped_winning_sizes = []
     for ps in pool_sizes:
@@ -364,12 +364,12 @@ def generate_text_report(results: dict, output_path: Path):
         if v_val > 0 and m_val > 0 and v_val < m_val:
             capped_winning_sizes.append(str(ps))
         lines.append(f"| {ps} | {v_val:,.0f} | {m_val:,.0f} | {unbound_val:,.0f} | {v_wait:,.0f} | {v_const} | **{ratio_str}** |")
-    
+
     v_64_k = ("velocity", "process_order", 64, 1000)
     v_64_p50 = results[v_64_k]["task_stats"]["p50_us"] if v_64_k in results else 0
     v_64_wait = results[v_64_k].get("avg_queue_wait_us", 0) if v_64_k in results else 0
     wait_pct = (v_64_wait / v_64_p50 * 100.0) if v_64_p50 > 0 else 0.0
-    
+
     lines.append("\n### Workstream 1 Findings: Pool Size Sweep Analysis\n")
     if crossover_ps:
         lines.append(f"- **Crossover Threshold**: At concurrency=1000, Velocity's p99 latency drops below raw MCP's unbounded p99 at **pool_size={crossover_ps}**.")
