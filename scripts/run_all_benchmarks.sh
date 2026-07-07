@@ -52,9 +52,9 @@ cargo run --release -p velocity-bench -- \
     --iterations 50
 echo ""
 
-# ─── Step 3: Run Python asyncio baseline ────────────────────────────────────
+# ─── Step 3: Run LangGraph baseline ─────────────────────────────────────────
 
-echo "🐍 Running Python asyncio baseline..."
+echo "🕸️ Running LangGraph baseline..."
 cd "$PROJECT_ROOT/baselines/langgraph_baseline"
 python3 agent.py
 echo ""
