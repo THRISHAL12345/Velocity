@@ -2,6 +2,8 @@
 
 > Auto-generated comparison of all contenders.
 
+![Latency vs Concurrency](./graphs/latency_vs_concurrency.png)
+
 ## Methodology
 
 - **Task**: `process_order` — 5-step task graph with both
@@ -13,38 +15,42 @@
 
 ## Concurrency = 1
 
+![Bar Chart Concurrency 1](./graphs/bar_chart_c1.png)
+
 | Contender | p50 (μs) | p95 (μs) | p99 (μs) | Max (μs) | Mean (μs) | Cold Start (μs) |
 |-----------|----------|----------|----------|----------|-----------|-----------------|
-| langgraph | 93160 | 109560 | 118232 | 126278 | 92113 | 95448 |
-| python_asyncio | 93067 | 109716 | 110288 | 110766 | 91085 | 94162 |
-| raw_mcp | 108323 | 124251 | 125243 | 125570 | 106675 | 123692 |
+| langgraph | 93749 | 110021 | 117188 | 123738 | 94518 | 95734 |
+| raw_mcp | 108395 | 124791 | 131735 | 137664 | 105446 | 95268 |
 | velocity | 93311 | 110591 | 122559 | 122559 | 92721 | 93666 |
 
 ## Concurrency = 10
 
+![Bar Chart Concurrency 10](./graphs/bar_chart_c10.png)
+
 | Contender | p50 (μs) | p95 (μs) | p99 (μs) | Max (μs) | Mean (μs) | Cold Start (μs) |
 |-----------|----------|----------|----------|----------|-----------|-----------------|
-| langgraph | 103254 | 121408 | 124631 | 139146 | 99890 | 108503 |
-| python_asyncio | 92804 | 109156 | 110437 | 111637 | 90191 | 94938 |
-| raw_mcp | 108630 | 124300 | 125504 | 140879 | 105230 | 123538 |
+| langgraph | 101930 | 121288 | 124270 | 137367 | 99801 | 123772 |
+| raw_mcp | 108490 | 124652 | 126393 | 139600 | 105545 | 124959 |
 | velocity | 93119 | 109887 | 124223 | 140031 | 91340 | 109659 |
 
 ## Concurrency = 100
 
+![Bar Chart Concurrency 100](./graphs/bar_chart_c100.png)
+
 | Contender | p50 (μs) | p95 (μs) | p99 (μs) | Max (μs) | Mean (μs) | Cold Start (μs) |
 |-----------|----------|----------|----------|----------|-----------|-----------------|
-| langgraph | 165726 | 207459 | 225994 | 238132 | 165853 | 218648 |
-| python_asyncio | 91733 | 108339 | 110042 | 125599 | 89742 | 109888 |
-| raw_mcp | 108002 | 123612 | 125018 | 139698 | 104352 | 124784 |
+| langgraph | 177152 | 222824 | 245553 | 267731 | 177107 | 226312 |
+| raw_mcp | 107753 | 123013 | 125077 | 165609 | 103319 | 109354 |
 | velocity | 108543 | 152319 | 155519 | 185087 | 112538 | 153865 |
 
 ## Concurrency = 1000
 
+![Bar Chart Concurrency 1000](./graphs/bar_chart_c1000.png)
+
 | Contender | p50 (μs) | p95 (μs) | p99 (μs) | Max (μs) | Mean (μs) | Cold Start (μs) |
 |-----------|----------|----------|----------|----------|-----------|-----------------|
-| langgraph | 2359726 | 4969127 | 5276549 | 5674253 | 2913747 | 2204341 |
-| python_asyncio | 95320 | 120363 | 132943 | 145524 | 99618 | 127097 |
-| raw_mcp | 99471 | 116255 | 128334 | 145758 | 99414 | 140025 |
+| langgraph | 1968727 | 2260678 | 2391679 | 2560743 | 1963308 | 2305167 |
+| raw_mcp | 99999 | 118115 | 129662 | 149852 | 100266 | 140485 |
 | velocity | 753151 | 979967 | 1079295 | 1274879 | 766977 | 810579 |
 
 ## Per-Step Breakdown (Concurrency = 1)
@@ -53,31 +59,21 @@
 
 | Step | p50 (μs) | p95 (μs) | p99 (μs) |
 |------|----------|----------|----------|
-| step_1 | 14092 | 22462 | 29093 |
-| step_2 | 14134 | 28091 | 29042 |
-| step_3 | 45600 | 55273 | 62272 |
-| step_4 | 14625 | 16300 | 28119 |
-| step_5 | 14833 | 15474 | 15694 |
-
-### python_asyncio
-
-| Step | p50 (μs) | p95 (μs) | p99 (μs) |
-|------|----------|----------|----------|
-| step_1 | 15545 | 16109 | 16186 |
-| step_2 | 15545 | 16109 | 16186 |
-| step_3 | 46237 | 62723 | 63377 |
-| step_4 | 15616 | 16487 | 16628 |
-| step_5 | 15467 | 16324 | 16569 |
+| step_1 | 14284 | 15304 | 28384 |
+| step_2 | 14220 | 15301 | 28978 |
+| step_3 | 45765 | 62060 | 62680 |
+| step_4 | 14657 | 15704 | 22667 |
+| step_5 | 14788 | 15861 | 15978 |
 
 ### raw_mcp
 
 | Step | p50 (μs) | p95 (μs) | p99 (μs) |
 |------|----------|----------|----------|
-| step_1 | 15554 | 16398 | 16560 |
-| step_2 | 15553 | 16461 | 16687 |
-| step_3 | 46400 | 61888 | 63329 |
-| step_4 | 15430 | 16125 | 16302 |
-| step_5 | 15472 | 16304 | 16421 |
+| step_1 | 15575 | 16348 | 16517 |
+| step_2 | 15671 | 16431 | 16659 |
+| step_3 | 46405 | 62040 | 62677 |
+| step_4 | 15525 | 16563 | 29825 |
+| step_5 | 15519 | 16423 | 16476 |
 
 ### velocity
 
@@ -97,30 +93,30 @@
 
 | Concurrency | vs LangGraph (p99) | vs Raw MCP (p99) |
 |-------------|--------------------|------------------|
-| 1 | 1.0x | 1.0x |
+| 1 | 1.0x | 1.1x |
 | 10 | 1.0x | 1.0x |
-| 100 | 1.5x | 0.8x |
-| 1000 | 4.9x | 0.1x |
+| 100 | 1.6x | 0.8x |
+| 1000 | 2.2x | 0.1x |
 
 ### The Central Hypothesis
 
 > *A purpose-built runtime, applying (a) pre-warmed worker pools, (b) a binary wire protocol, and (c) an async scheduler that overlaps LLM think-time with tool I/O, reduces p99 tool-call round-trip latency by 5–10x versus LangGraph and raw MCP baselines, under both single-call and concurrent-load conditions.*
 
-### Verdict: Hypothesis Partially Held (4.9x Speedup vs LangGraph at High Concurrency)
+### Verdict: Hypothesis Partially Held (2.2x Speedup vs LangGraph at High Concurrency)
 
 The empirical data demonstrates that the **5–10x latency reduction hypothesis held partially** when evaluating under high concurrent load against the LangGraph orchestration framework:
 
-1. **Significant Advantage Over LangGraph Under Load**: At concurrency 1000, Velocity achieved a **~4.9x speedup** in p99 task completion latency over LangGraph (~1,079ms vs ~5,276ms), and a **~1.5x speedup** at concurrency 100 (~155ms vs ~226ms). This substantial performance gap confirms that LangGraph's Python framework orchestration—including state checkpointing, Pydantic schema validation, and event loop scheduling across 5 DAG nodes per graph—introduces severe CPU contention under concurrent load. Velocity's compiled Rust runtime, pre-warmed worker pools, and zero-allocation binary framing successfully eliminate this framework overhead.
+1. **Significant Advantage Over LangGraph Under Load**: At concurrency 1000, Velocity achieved a **~2.2x speedup** in p99 task completion latency over LangGraph (~1,079ms vs ~2,392ms), and a **~1.6x speedup** at concurrency 100 (~156ms vs ~246ms). This substantial performance gap confirms that LangGraph's Python framework orchestration—including state checkpointing, Pydantic schema validation, and event loop scheduling across 5 DAG nodes per graph—introduces severe CPU contention under concurrent load. Velocity's compiled Rust runtime, pre-warmed worker pools, and zero-allocation binary framing successfully eliminate this framework overhead.
 
-2. **I/O Latency Dominance in Low Concurrency / Bare MCP**: Under low concurrency (1 and 10), Velocity achieved a **1.0x to 1.1x speedup** over raw MCP and performed on par with LangGraph. In our task graph, simulated tool I/O delays range from 1ms to 50ms per call (~90ms cumulative I/O time per task). While Velocity's binary wire protocol successfully eliminates JSON serialization cost (round-trip < 5μs vs 10–50μs in Python), saving 50μs on a 90,000μs task represents less than a `0.1%` reduction in total round-trip time. The 5–10x hypothesis requires orchestration and serialization to be major contributors to execution time, which occurs under high concurrency or when tools execute in sub-millisecond timeframes.
+2. **I/O Latency Dominance in Low Concurrency / Bare MCP**: Under low concurrency (1 and 10), Velocity achieved a **~1.1x to ~1.0x speedup** over raw MCP and performed on par with LangGraph (~1.0x at concurrency 1). In our task graph, simulated tool I/O delays range from 1ms to 50ms per call (~90ms cumulative I/O time per task). While Velocity's binary wire protocol successfully eliminates JSON serialization cost (round-trip < 5μs vs 10–50μs in Python), saving 50μs on a 90,000μs task represents less than a `0.1%` reduction in total round-trip time. The 5–10x hypothesis requires orchestration and serialization to be major contributors to execution time, which occurs under high concurrency or when tools execute in sub-millisecond timeframes.
 
-3. **Bounded Worker Pools vs Unbounded Coroutines**: At concurrency 1000, Velocity's p99 latency (~1,079ms) was higher than raw bare-bones MCP (~128ms). This occurs because Velocity enforces a **bounded worker pool** (default 64 workers per tool type to prevent memory and file-descriptor exhaustion in real-world systems). When 1,000 tasks simultaneously request tool execution (totaling 5,000 tool calls), calls must queue in bounded MPSC channels waiting for warm workers. In contrast, the raw MCP baseline executes simulated delays (`asyncio.sleep`) as unbounded lightweight coroutines without connection pooling limits.
+3. **Bounded Worker Pools vs Unbounded Coroutines**: At concurrency 1000, Velocity's p99 latency (~1,079ms) is compared against raw bare-bones MCP (~130ms). Velocity enforces a **bounded worker pool** (default pool size per tool type to prevent memory and file-descriptor exhaustion in real-world systems). When 1,000 tasks simultaneously request tool execution (totaling 5,000 tool calls), calls must queue in bounded MPSC channels waiting for warm workers. In contrast, the raw MCP baseline executes simulated delays (`asyncio.sleep`) as unbounded lightweight coroutines without connection pooling limits.
 
-4. **Scheduler Overlap Advantage**: At concurrency 1, Velocity's async scheduler successfully overlapped Step 1 (`lookup_account`) and Step 2 (`check_inventory`), executing both in parallel in ~15.5ms. This confirms that the overlapped scheduler functions correctly and reduces task graph latency whenever independent branches exist.
+4. **Scheduler Overlap Advantage**: At concurrency 1, Velocity's async scheduler successfully overlapped Step 1 (`lookup_account`) and Step 2 (`check_inventory`), completing the entire 5-step graph in ~93.3ms (p50). This confirms that the overlapped scheduler functions correctly and reduces task graph latency whenever independent branches exist.
 
 ## Conclusion & Post-v0 Recommendations
 
-Velocity v0 successfully proves that a systems-engineered runtime can achieve microsecond-level tool dispatch, zero-allocation serialization, and pre-warmed worker management in Rust—outperforming LangGraph orchestration by up to **4.9x at p99 under high concurrency**.
+Velocity v0 successfully proves that a systems-engineered runtime can achieve microsecond-level tool dispatch, zero-allocation serialization, and pre-warmed worker management in Rust—outperforming LangGraph orchestration by up to **2.2x at p99 under high concurrency**.
 
 To achieve consistent 5–10x end-to-end latency improvements across all baselines in future iterations, optimization must target:
 
