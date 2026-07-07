@@ -1,2 +1,2 @@
-# No external dependencies needed — uses only Python stdlib + asyncio
-# The tools.py module uses only stdlib random and asyncio
+langgraph>=0.2.0
+langchain-core>=0.2.0

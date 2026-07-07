@@ -1,21 +1,15 @@
 """LangGraph baseline for the Velocity benchmark.
 
-Implements the identical `process_order` task graph using standard Python
-asyncio with the same dependency structure:
+Implements the identical `process_order` task graph using an idiomatic
+LangGraph StateGraph per Section 8.1 of AGENTS.md:
   Step 1: mock_db("lookup_account", account_id)     [no deps]
   Step 2: mock_db("check_inventory", sku)            [no deps, independent of 1]
   Step 3: mock_http("get_pricing", sku)              [depends on 2]
   Step 4: mock_db("write_order_record", ...)         [depends on 1 & 3]
   Step 5: mock_file("write_confirmation_log", ...)   [depends on 4]
 
-This baseline uses asyncio.gather for independent steps and sequential
-awaits for dependent steps, representing a competent Python async
-implementation without LangGraph framework overhead.
-
-NOTE: We implement this as a pure asyncio baseline rather than requiring
-LangGraph installation, since LangGraph adds framework overhead that is
-separate from the orchestration overhead we're measuring. This gives
-Python the fairest possible comparison — just asyncio coordination.
+This baseline uses LangGraph's compiled StateGraph engine, representing
+a competent, idiomatic LangGraph implementation without artificial handicapping.
 """
 
 import asyncio
@@ -24,67 +18,102 @@ import sys
 import time
 import statistics
 from pathlib import Path
+from typing import TypedDict, Annotated, Any, Dict
 
+from langgraph.graph import StateGraph, START, END
 from tools import mock_db, mock_http, mock_file
 
 
+def merge_dicts(left: dict, right: dict) -> dict:
+    """Reducer to cleanly merge state dictionaries from concurrent nodes."""
+    return {**left, **right}
+
+
+class OrderState(TypedDict):
+    account_id: str
+    sku: str
+    step_times: Annotated[dict, merge_dicts]
+    results: Annotated[dict, merge_dicts]
+
+
+async def step_1_node(state: OrderState) -> dict:
+    t0 = time.perf_counter_ns()
+    res = await mock_db("lookup_account", account_id=state["account_id"])
+    dt = (time.perf_counter_ns() - t0) / 1000
+    return {"step_times": {"step_1": dt}, "results": {"step_1": res}}
+
+
+async def step_2_node(state: OrderState) -> dict:
+    t0 = time.perf_counter_ns()
+    res = await mock_db("check_inventory", sku=state["sku"])
+    dt = (time.perf_counter_ns() - t0) / 1000
+    return {"step_times": {"step_2": dt}, "results": {"step_2": res}}
+
+
+async def step_3_node(state: OrderState) -> dict:
+    t0 = time.perf_counter_ns()
+    res = await mock_http("get_pricing", sku=state["sku"])
+    dt = (time.perf_counter_ns() - t0) / 1000
+    return {"step_times": {"step_3": dt}, "results": {"step_3": res}}
+
+
+async def step_4_node(state: OrderState) -> dict:
+    t0 = time.perf_counter_ns()
+    res = await mock_db("write_order_record", account_id=state["account_id"], sku=state["sku"])
+    dt = (time.perf_counter_ns() - t0) / 1000
+    return {"step_times": {"step_4": dt}, "results": {"step_4": res}}
+
+
+async def step_5_node(state: OrderState) -> dict:
+    t0 = time.perf_counter_ns()
+    order_id = state["results"].get("step_4", {}).get("order_id", "UNKNOWN")
+    res = await mock_file("write_confirmation_log", order_id=order_id)
+    dt = (time.perf_counter_ns() - t0) / 1000
+    return {"step_times": {"step_5": dt}, "results": {"step_5": res}}
+
+
+# Compile the LangGraph DAG
+builder = StateGraph(OrderState)
+builder.add_node("step_1", step_1_node)
+builder.add_node("step_2", step_2_node)
+builder.add_node("step_3", step_3_node)
+builder.add_node("step_4", step_4_node)
+builder.add_node("step_5", step_5_node)
+
+# Steps 1 & 2 launch concurrently from START
+builder.add_edge(START, "step_1")
+builder.add_edge(START, "step_2")
+
+# Step 3 depends on step 2
+builder.add_edge("step_2", "step_3")
+
+# Step 4 depends on steps 1 & 3 (synchronization barrier)
+builder.add_edge("step_1", "step_4")
+builder.add_edge("step_3", "step_4")
+
+# Step 5 depends on step 4
+builder.add_edge("step_4", "step_5")
+builder.add_edge("step_5", END)
+
+graph = builder.compile()
+
+
 async def process_order(account_id: str, sku: str) -> dict:
-    """Execute the process_order task graph with proper dependency handling.
-
-    Steps 1 and 2 are independent and run concurrently via asyncio.gather.
-    Steps 3-5 are sequential based on their dependencies.
-    """
+    """Execute the process_order task graph via LangGraph."""
     start = time.perf_counter_ns()
-    step_times = {}
-
-    # Steps 1 & 2: independent — run concurrently
-    s1_start = time.perf_counter_ns()
-    s2_start = time.perf_counter_ns()
-
-    result_1, result_2 = await asyncio.gather(
-        mock_db("lookup_account", account_id=account_id),
-        mock_db("check_inventory", sku=sku),
-    )
-
-    s1_end = time.perf_counter_ns()
-    s2_end = time.perf_counter_ns()
-    step_times["step_1"] = (s1_end - s1_start) / 1000  # ns -> us
-    step_times["step_2"] = (s2_end - s2_start) / 1000
-
-    # Step 3: depends on step 2
-    s3_start = time.perf_counter_ns()
-    result_3 = await mock_http("get_pricing", sku=sku)
-    s3_end = time.perf_counter_ns()
-    step_times["step_3"] = (s3_end - s3_start) / 1000
-
-    # Step 4: depends on steps 1 & 3
-    s4_start = time.perf_counter_ns()
-    result_4 = await mock_db(
-        "write_order_record", account_id=account_id, sku=sku
-    )
-    s4_end = time.perf_counter_ns()
-    step_times["step_4"] = (s4_end - s4_start) / 1000
-
-    # Step 5: depends on step 4
-    s5_start = time.perf_counter_ns()
-    result_5 = await mock_file(
-        "write_confirmation_log", order_id=result_4.get("order_id", "UNKNOWN")
-    )
-    s5_end = time.perf_counter_ns()
-    step_times["step_5"] = (s5_end - s5_start) / 1000
-
+    initial_state: OrderState = {
+        "account_id": account_id,
+        "sku": sku,
+        "step_times": {},
+        "results": {},
+    }
+    final_state = await graph.ainvoke(initial_state)
     total_us = (time.perf_counter_ns() - start) / 1000
 
     return {
         "total_us": total_us,
-        "step_times": step_times,
-        "results": {
-            "step_1": result_1,
-            "step_2": result_2,
-            "step_3": result_3,
-            "step_4": result_4,
-            "step_5": result_5,
-        },
+        "step_times": final_state["step_times"],
+        "results": final_state["results"],
     }
 
 
@@ -159,7 +188,7 @@ async def run_benchmark(concurrency: int, iterations: int, warmup: int) -> dict:
     steady_state_avg = statistics.mean(steady_times) if steady_times else 0
 
     return {
-        "contender": "python_asyncio",
+        "contender": "langgraph",
         "concurrency": concurrency,
         "task_stats": task_stats,
         "step_stats": step_stats,
@@ -178,20 +207,20 @@ async def main():
     output_dir = Path(__file__).parent.parent.parent / "results" / "raw"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    print("\n🐍 Python Asyncio Baseline Benchmark")
-    print(f"   Warm-up: {warmup} iterations")
-    print(f"   Measured: {iterations} iterations")
-    print(f"   Concurrency levels: {concurrency_levels}\n")
+    print("\n🕸️ LangGraph Baseline Benchmark", flush=True)
+    print(f"   Warm-up: {warmup} iterations", flush=True)
+    print(f"   Measured: {iterations} iterations", flush=True)
+    print(f"   Concurrency levels: {concurrency_levels}\n", flush=True)
 
     all_reports = []
 
     for concurrency in concurrency_levels:
-        print(f"⏱  Running benchmark at concurrency={concurrency}...")
+        print(f"⏱  Running benchmark at concurrency={concurrency}...", flush=True)
 
         report = await run_benchmark(concurrency, iterations, warmup)
 
         # Write results
-        filename = f"python_asyncio_{concurrency}"
+        filename = f"langgraph_{concurrency}"
         with open(output_dir / f"{filename}.json", "w") as f:
             json.dump(report, f, indent=2)
 
@@ -199,29 +228,29 @@ async def main():
             f"   ✓ concurrency={concurrency}: "
             f"p50={report['task_stats']['p50_us']:.0f}μs  "
             f"p95={report['task_stats']['p95_us']:.0f}μs  "
-            f"p99={report['task_stats']['p99_us']:.0f}μs"
+            f"p99={report['task_stats']['p99_us']:.0f}μs", flush=True
         )
 
         all_reports.append(report)
 
     # Print summary
-    print(f"\n{'=' * 80}")
-    print("  PYTHON ASYNCIO BASELINE RESULTS")
-    print(f"{'=' * 80}\n")
+    print(f"\n{'=' * 80}", flush=True)
+    print("  LANGGRAPH BASELINE RESULTS", flush=True)
+    print(f"{'=' * 80}\n", flush=True)
 
     for report in all_reports:
         stats = report["task_stats"]
-        print(f"Concurrency: {report['concurrency']}")
+        print(f"Concurrency: {report['concurrency']}", flush=True)
         print(f"  Task Total:  p50={stats['p50_us']:>8.0f}μs  "
               f"p95={stats['p95_us']:>8.0f}μs  "
               f"p99={stats['p99_us']:>8.0f}μs  "
-              f"max={stats['max_us']:>8.0f}μs")
+              f"max={stats['max_us']:>8.0f}μs", flush=True)
         print(f"  Cold Start:  {report['cold_start_us']:>8.0f}μs  "
-              f"|  Steady-State Avg: {report['steady_state_avg_us']:>8.0f}μs")
-        print()
+              f"|  Steady-State Avg: {report['steady_state_avg_us']:>8.0f}μs", flush=True)
+        print("", flush=True)
 
-    print(f"📊 Raw results written to: {output_dir}")
-    print("✅ Benchmark complete.\n")
+    print(f"📊 Raw results written to: {output_dir}", flush=True)
+    print("✅ Benchmark complete.\n", flush=True)
 
 
 if __name__ == "__main__":
