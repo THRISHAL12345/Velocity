@@ -221,8 +221,15 @@ async def main():
 
         # Write results
         filename = f"langgraph_{concurrency}"
-        with open(output_dir / f"{filename}.json", "w") as f:
+        with open(output_dir / f"{filename}.json", "w", encoding="utf-8") as f:
             json.dump(report, f, indent=2)
+        with open(output_dir / f"{filename}.csv", "w", encoding="utf-8") as f:
+            f.write("metric,p50_us,p95_us,p99_us,max_us,min_us,mean_us,count\n")
+            ts = report["task_stats"]
+            f.write(f"task_total,{ts['p50_us']:.0f},{ts['p95_us']:.0f},{ts['p99_us']:.0f},{ts['max_us']:.0f},{ts['min_us']:.0f},{ts['mean_us']:.2f},{ts['count']}\n")
+            for step_id in sorted(report["step_stats"].keys()):
+                ss = report["step_stats"][step_id]
+                f.write(f"{step_id},{ss['p50_us']:.0f},{ss['p95_us']:.0f},{ss['p99_us']:.0f},{ss['max_us']:.0f},{ss['min_us']:.0f},{ss['mean_us']:.2f},{ss['count']}\n")
 
         print(
             f"   ✓ concurrency={concurrency}: "

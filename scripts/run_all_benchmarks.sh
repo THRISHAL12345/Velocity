@@ -3,7 +3,7 @@
 # Velocity Benchmark Suite — Run All Contenders
 # =============================================================================
 #
-# Runs the Velocity runtime, Python asyncio baseline, and raw MCP baseline
+# Runs the Velocity runtime, LangGraph baseline, and raw MCP baseline
 # benchmarks at all concurrency levels (1, 10, 100, 1000).
 #
 # Usage: ./scripts/run_all_benchmarks.sh
@@ -30,8 +30,9 @@ echo "Project root: $PROJECT_ROOT"
 echo "Results dir:  $RESULTS_DIR"
 echo ""
 
-# Ensure results directory exists
+# Ensure results directory exists and clean old results
 mkdir -p "$RESULTS_DIR"
+rm -f "$RESULTS_DIR"/*.json "$RESULTS_DIR"/*.csv 2>/dev/null || true
 
 # ─── Step 1: Build Velocity runtime in release mode ─────────────────────────
 
