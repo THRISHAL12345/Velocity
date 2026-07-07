@@ -8,10 +8,16 @@
 //! All three are implemented identically across the Velocity runtime,
 //! LangGraph baseline, and raw MCP baseline.
 
+pub mod mock_calc_engine;
 pub mod mock_db;
 pub mod mock_file;
 pub mod mock_http;
+pub mod mock_memory_lookup;
+pub mod mock_state_write;
 
+pub use mock_calc_engine::{MockCalcEngine, MockCalcEngineConfig};
 pub use mock_db::{MockDb, MockDbConfig};
 pub use mock_file::{MockFile, MockFileConfig};
 pub use mock_http::{MockHttp, MockHttpConfig};
+pub use mock_memory_lookup::{MockMemoryLookup, MockMemoryLookupConfig};
+pub use mock_state_write::{MockStateWrite, MockStateWriteConfig};

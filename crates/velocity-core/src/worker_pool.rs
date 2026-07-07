@@ -14,8 +14,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
 use tracing::{debug, info, warn};
-
-use velocity_tools::{MockDb, MockFile, MockHttp};
+use velocity_tools::{
+    MockCalcEngine, MockDb, MockFile, MockHttp, MockMemoryLookup, MockStateWrite,
+};
 
 /// Errors that can occur during pool operations.
 #[derive(Debug, thiserror::Error)]
@@ -84,6 +85,9 @@ pub enum ToolExecutor {
     Db(MockDb),
     Http(MockHttp),
     File(MockFile),
+    MemoryLookup(MockMemoryLookup),
+    CalcEngine(MockCalcEngine),
+    StateWrite(MockStateWrite),
 }
 
 impl ToolExecutor {
@@ -100,6 +104,9 @@ impl ToolExecutor {
             ToolExecutor::Db(db) => db.execute(operation, args).await,
             ToolExecutor::Http(http) => http.execute(operation, args).await,
             ToolExecutor::File(file) => file.execute(operation, args).await,
+            ToolExecutor::MemoryLookup(tool) => tool.execute(operation, args).await,
+            ToolExecutor::CalcEngine(tool) => tool.execute(operation, args).await,
+            ToolExecutor::StateWrite(tool) => tool.execute(operation, args).await,
         }
     }
 }
@@ -168,7 +175,14 @@ impl WorkerPool {
     /// persistent handle to its mock executor. The workers are immediately
     /// available for acquisition via `acquire()`.
     pub fn new(config: WorkerPoolConfig) -> Self {
-        let tool_names = ["mock_db", "mock_http", "mock_file"];
+        let tool_names = [
+            "mock_db",
+            "mock_http",
+            "mock_file",
+            "mock_memory_lookup",
+            "mock_calc_engine",
+            "mock_state_write",
+        ];
         let mut pools = HashMap::new();
         let mut return_txs = HashMap::new();
         let mut pool_sizes = HashMap::new();
@@ -185,13 +199,13 @@ impl WorkerPool {
             // Pre-warm: create all workers and send them into the channel
             for _ in 0..config.pool_size {
                 let worker_id = next_worker_id.fetch_add(1, Ordering::Relaxed);
-                let executor = match (*tool_name, config.profile.as_str()) {
-                    ("mock_db", "hft_tick") => ToolExecutor::Db(MockDb::with_hft()),
-                    ("mock_http", "hft_tick") => ToolExecutor::Http(MockHttp::with_hft()),
-                    ("mock_file", "hft_tick") => ToolExecutor::File(MockFile::with_hft()),
-                    ("mock_db", _) => ToolExecutor::Db(MockDb::with_defaults()),
-                    ("mock_http", _) => ToolExecutor::Http(MockHttp::with_defaults()),
-                    ("mock_file", _) => ToolExecutor::File(MockFile::with_defaults()),
+                let executor = match *tool_name {
+                    "mock_db" => ToolExecutor::Db(MockDb::with_defaults()),
+                    "mock_http" => ToolExecutor::Http(MockHttp::with_defaults()),
+                    "mock_file" => ToolExecutor::File(MockFile::with_defaults()),
+                    "mock_memory_lookup" => ToolExecutor::MemoryLookup(MockMemoryLookup::new()),
+                    "mock_calc_engine" => ToolExecutor::CalcEngine(MockCalcEngine::new()),
+                    "mock_state_write" => ToolExecutor::StateWrite(MockStateWrite::new()),
                     _ => unreachable!(),
                 };
 
@@ -455,13 +469,25 @@ mod tests {
         // File
         let h = pool.acquire("mock_file").await.unwrap();
         pool.release(h);
+
+        // MemoryLookup
+        let h = pool.acquire("mock_memory_lookup").await.unwrap();
+        pool.release(h);
+
+        // CalcEngine
+        let h = pool.acquire("mock_calc_engine").await.unwrap();
+        pool.release(h);
+
+        // StateWrite
+        let h = pool.acquire("mock_state_write").await.unwrap();
+        pool.release(h);
     }
 
     #[tokio::test]
     async fn test_all_stats() {
         let pool = WorkerPool::new(WorkerPoolConfig::new(4));
         let stats = pool.all_stats();
-        assert_eq!(stats.len(), 3);
+        assert_eq!(stats.len(), 6);
         for s in stats.values() {
             assert_eq!(s.total, 4);
             assert_eq!(s.idle, 4);

@@ -352,38 +352,38 @@ pub fn process_order_task(account_id: &str, sku: &str) -> Vec<ToolCallIntent> {
 /// Creates the `hft_tick` sub-millisecond task graph.
 ///
 /// ```text
-/// Step 1: mock_db("lookup_orderbook", symbol)
-/// Step 2: mock_db("check_risk_limit", account_id)  [independent of step 1]
-/// Step 3: mock_http("calculate_alpha", symbol)      [depends on step 1]
-/// Step 4: mock_db("write_trade_record", ...)        [depends on steps 2 & 3]
-/// Step 5: mock_file("log_audit", ...)               [depends on step 4]
+/// Step 1: mock_memory_lookup("lookup_orderbook", symbol)
+/// Step 2: mock_memory_lookup("check_risk_limit", account_id)  [independent of step 1]
+/// Step 3: mock_calc_engine("calculate_alpha", symbol)         [depends on step 1]
+/// Step 4: mock_memory_lookup("write_trade_record", ...)       [depends on steps 2 & 3]
+/// Step 5: mock_state_write("log_audit", ...)                  [depends on step 4]
 /// ```
 pub fn hft_tick_task(symbol: &str, account_id: &str) -> Vec<ToolCallIntent> {
     vec![
         ToolCallIntent {
             step_id: "step_1".to_string(),
-            tool_name: "mock_db".to_string(),
+            tool_name: "mock_memory_lookup".to_string(),
             operation: "lookup_orderbook".to_string(),
             args: vec![("symbol".to_string(), symbol.to_string())],
             dependencies: vec![],
         },
         ToolCallIntent {
             step_id: "step_2".to_string(),
-            tool_name: "mock_db".to_string(),
+            tool_name: "mock_memory_lookup".to_string(),
             operation: "check_risk_limit".to_string(),
             args: vec![("account_id".to_string(), account_id.to_string())],
             dependencies: vec![], // Independent of step 1 — can overlap!
         },
         ToolCallIntent {
             step_id: "step_3".to_string(),
-            tool_name: "mock_http".to_string(),
+            tool_name: "mock_calc_engine".to_string(),
             operation: "calculate_alpha".to_string(),
             args: vec![("symbol".to_string(), symbol.to_string())],
             dependencies: vec!["step_1".to_string()],
         },
         ToolCallIntent {
             step_id: "step_4".to_string(),
-            tool_name: "mock_db".to_string(),
+            tool_name: "mock_memory_lookup".to_string(),
             operation: "write_trade_record".to_string(),
             args: vec![
                 ("symbol".to_string(), symbol.to_string()),
@@ -393,7 +393,7 @@ pub fn hft_tick_task(symbol: &str, account_id: &str) -> Vec<ToolCallIntent> {
         },
         ToolCallIntent {
             step_id: "step_5".to_string(),
-            tool_name: "mock_file".to_string(),
+            tool_name: "mock_state_write".to_string(),
             operation: "log_audit".to_string(),
             args: vec![("trade_id".to_string(), "TRD-1001".to_string())],
             dependencies: vec!["step_4".to_string()],
