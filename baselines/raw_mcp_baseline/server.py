@@ -22,85 +22,91 @@ from pathlib import Path
 
 async def mock_db_raw(operation: str, args: dict, profile: str = "process_order") -> dict:
     """Simulates a database query."""
-    if profile == "hft_tick":
-        delay = random.uniform(0.000050, 0.000150)
-        await asyncio.sleep(delay)
-        if operation == "lookup_orderbook":
-            return {"symbol": args.get("symbol", "UNKNOWN"), "bids": 10, "asks": 10}
-        elif operation == "check_risk_limit":
-            return {"account_id": args.get("account_id", "UNKNOWN"), "limit_ok": True, "margin": 100000}
-        elif operation == "write_trade_record":
-            return {"trade_id": "TRD-1001", "status": "confirmed"}
-        else:
-            raise ValueError(f"unknown hft db operation: {operation}")
+    delay = random.uniform(0.005, 0.015)
+    await asyncio.sleep(delay)
+    if operation == "lookup_account":
+        return {
+            "account_id": args.get("account_id", "UNKNOWN"),
+            "name": "Test User",
+            "balance": 1000.50,
+            "status": "active",
+        }
+    elif operation == "check_inventory":
+        return {
+            "sku": args.get("sku", "UNKNOWN"),
+            "quantity": 42,
+            "warehouse": "WH-001",
+        }
+    elif operation == "write_order_record":
+        return {"order_id": "ORD-99001", "status": "confirmed"}
     else:
-        delay = random.uniform(0.005, 0.015)
-        await asyncio.sleep(delay)
-        if operation == "lookup_account":
-            return {
-                "account_id": args.get("account_id", "UNKNOWN"),
-                "name": "Test User",
-                "balance": 1000.50,
-                "status": "active",
-            }
-        elif operation == "check_inventory":
-            return {
-                "sku": args.get("sku", "UNKNOWN"),
-                "quantity": 42,
-                "warehouse": "WH-001",
-            }
-        elif operation == "write_order_record":
-            return {"order_id": "ORD-99001", "status": "confirmed"}
-        else:
-            raise ValueError(f"unknown db operation: {operation}")
+        raise ValueError(f"unknown db operation: {operation}")
 
 
 async def mock_http_raw(operation: str, args: dict, profile: str = "process_order") -> dict:
     """Simulates an external API call."""
-    if profile == "hft_tick":
-        delay = random.uniform(0.000200, 0.000500)
-        await asyncio.sleep(delay)
-        if operation == "calculate_alpha":
-            return {"symbol": args.get("symbol", "UNKNOWN"), "alpha_score": 0.85, "confidence": 0.92}
-        else:
-            raise ValueError(f"unknown hft http operation: {operation}")
+    delay = random.uniform(0.020, 0.050)
+    await asyncio.sleep(delay)
+    if operation == "get_pricing":
+        return {
+            "sku": args.get("sku", "UNKNOWN"),
+            "unit_price": 29.99,
+            "currency": "USD",
+            "available": True,
+        }
     else:
-        delay = random.uniform(0.020, 0.050)
-        await asyncio.sleep(delay)
-        if operation == "get_pricing":
-            return {
-                "sku": args.get("sku", "UNKNOWN"),
-                "unit_price": 29.99,
-                "currency": "USD",
-                "available": True,
-            }
-        else:
-            raise ValueError(f"unknown http operation: {operation}")
+        raise ValueError(f"unknown http operation: {operation}")
 
 
 async def mock_file_raw(operation: str, args: dict, profile: str = "process_order") -> dict:
     """Simulates file I/O."""
-    if profile == "hft_tick":
-        delay = random.uniform(0.000010, 0.000030)
-        await asyncio.sleep(delay)
-        if operation == "log_audit":
-            return {"file": "/var/log/hft/audit.log", "bytes_written": 64, "status": "ok"}
-        else:
-            raise ValueError(f"unknown hft file operation: {operation}")
+    delay = random.uniform(0.001, 0.003)
+    await asyncio.sleep(delay)
+    if operation == "write_confirmation_log":
+        order_id = args.get("order_id", "UNKNOWN")
+        return {
+            "file": f"/var/log/orders/{order_id}.log",
+            "bytes_written": 256,
+            "status": "ok",
+        }
+    elif operation == "read":
+        return {"content": "file contents here", "bytes_read": 128}
     else:
-        delay = random.uniform(0.001, 0.003)
-        await asyncio.sleep(delay)
-        if operation == "write_confirmation_log":
-            order_id = args.get("order_id", "UNKNOWN")
-            return {
-                "file": f"/var/log/orders/{order_id}.log",
-                "bytes_written": 256,
-                "status": "ok",
-            }
-        elif operation == "read":
-            return {"content": "file contents here", "bytes_read": 128}
-        else:
-            raise ValueError(f"unknown file operation: {operation}")
+        raise ValueError(f"unknown file operation: {operation}")
+
+
+async def mock_memory_lookup_raw(operation: str, args: dict, profile: str = "process_order") -> dict:
+    """Simulates an ultra-fast in-memory lookup (50-150μs)."""
+    delay = random.uniform(0.000050, 0.000150)
+    await asyncio.sleep(delay)
+    if operation == "lookup_orderbook":
+        return {"symbol": args.get("symbol", "UNKNOWN"), "bids": 10, "asks": 10}
+    elif operation == "check_risk_limit":
+        return {"account_id": args.get("account_id", "UNKNOWN"), "limit_ok": True, "margin": 100000}
+    elif operation == "write_trade_record":
+        return {"trade_id": "TRD-1001", "status": "confirmed"}
+    else:
+        raise ValueError(f"unknown memory_lookup operation: {operation}")
+
+
+async def mock_calc_engine_raw(operation: str, args: dict, profile: str = "process_order") -> dict:
+    """Simulates a low-latency calculation engine (200-500μs)."""
+    delay = random.uniform(0.000200, 0.000500)
+    await asyncio.sleep(delay)
+    if operation == "calculate_alpha":
+        return {"symbol": args.get("symbol", "UNKNOWN"), "alpha_score": 0.85, "confidence": 0.92}
+    else:
+        raise ValueError(f"unknown calc_engine operation: {operation}")
+
+
+async def mock_state_write_raw(operation: str, args: dict, profile: str = "process_order") -> dict:
+    """Simulates an ultra-fast state update (10-30μs)."""
+    delay = random.uniform(0.000010, 0.000030)
+    await asyncio.sleep(delay)
+    if operation == "log_audit":
+        return {"file": "/var/log/hft/audit.log", "bytes_written": 64, "status": "ok"}
+    else:
+        raise ValueError(f"unknown state_write operation: {operation}")
 
 
 # ─── MCP-style JSON serialization layer ──────────────────────────────────────
@@ -109,6 +115,9 @@ TOOL_REGISTRY = {
     "mock_db": mock_db_raw,
     "mock_http": mock_http_raw,
     "mock_file": mock_file_raw,
+    "mock_memory_lookup": mock_memory_lookup_raw,
+    "mock_calc_engine": mock_calc_engine_raw,
+    "mock_state_write": mock_state_write_raw,
 }
 
 
@@ -165,30 +174,30 @@ async def execute_task_mcp(task_id: int, profile: str = "process_order", semapho
 
         # Step 1: lookup_orderbook
         s1_start = time.perf_counter_ns()
-        result_1 = await mcp_tool_call("mock_db", "lookup_orderbook", {"symbol": symbol}, profile, semaphore)
+        result_1 = await mcp_tool_call("mock_memory_lookup", "lookup_orderbook", {"symbol": symbol}, profile, semaphore)
         step_times["step_1"] = (time.perf_counter_ns() - s1_start) / 1000
 
         # Step 2: check_risk_limit (serial in MCP)
         s2_start = time.perf_counter_ns()
-        result_2 = await mcp_tool_call("mock_db", "check_risk_limit", {"account_id": account_id}, profile, semaphore)
+        result_2 = await mcp_tool_call("mock_memory_lookup", "check_risk_limit", {"account_id": account_id}, profile, semaphore)
         step_times["step_2"] = (time.perf_counter_ns() - s2_start) / 1000
 
         # Step 3: calculate_alpha
         s3_start = time.perf_counter_ns()
-        result_3 = await mcp_tool_call("mock_http", "calculate_alpha", {"symbol": symbol}, profile, semaphore)
+        result_3 = await mcp_tool_call("mock_calc_engine", "calculate_alpha", {"symbol": symbol}, profile, semaphore)
         step_times["step_3"] = (time.perf_counter_ns() - s3_start) / 1000
 
         # Step 4: write_trade_record
         s4_start = time.perf_counter_ns()
         result_4 = await mcp_tool_call(
-            "mock_db", "write_trade_record",
+            "mock_memory_lookup", "write_trade_record",
             {"symbol": symbol, "account_id": account_id}, profile, semaphore
         )
         step_times["step_4"] = (time.perf_counter_ns() - s4_start) / 1000
 
         # Step 5: log_audit
         s5_start = time.perf_counter_ns()
-        result_5 = await mcp_tool_call("mock_file", "log_audit", {"trade_id": "TRD-1001"}, profile, semaphore)
+        result_5 = await mcp_tool_call("mock_state_write", "log_audit", {"trade_id": "TRD-1001"}, profile, semaphore)
         step_times["step_5"] = (time.perf_counter_ns() - s5_start) / 1000
 
         results = {

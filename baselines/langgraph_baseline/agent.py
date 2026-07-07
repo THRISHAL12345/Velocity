@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import TypedDict, Annotated, Any, Dict
 
 from langgraph.graph import StateGraph, START, END
-from tools import mock_db, mock_http, mock_file
+from tools import mock_db, mock_http, mock_file, mock_memory_lookup, mock_calc_engine, mock_state_write
 
 
 def merge_dicts(left: dict, right: dict) -> dict:
@@ -101,28 +101,28 @@ class HFTState(TypedDict):
 
 async def hft_step_1_node(state: HFTState) -> dict:
     t0 = time.perf_counter_ns()
-    res = await mock_db("lookup_orderbook", profile="hft_tick", symbol=state["symbol"])
+    res = await mock_memory_lookup("lookup_orderbook", symbol=state["symbol"])
     dt = (time.perf_counter_ns() - t0) / 1000
     return {"step_times": {"step_1": dt}, "results": {"step_1": res}}
 
 
 async def hft_step_2_node(state: HFTState) -> dict:
     t0 = time.perf_counter_ns()
-    res = await mock_db("check_risk_limit", profile="hft_tick", account_id=state["account_id"])
+    res = await mock_memory_lookup("check_risk_limit", account_id=state["account_id"])
     dt = (time.perf_counter_ns() - t0) / 1000
     return {"step_times": {"step_2": dt}, "results": {"step_2": res}}
 
 
 async def hft_step_3_node(state: HFTState) -> dict:
     t0 = time.perf_counter_ns()
-    res = await mock_http("calculate_alpha", profile="hft_tick", symbol=state["symbol"])
+    res = await mock_calc_engine("calculate_alpha", symbol=state["symbol"])
     dt = (time.perf_counter_ns() - t0) / 1000
     return {"step_times": {"step_3": dt}, "results": {"step_3": res}}
 
 
 async def hft_step_4_node(state: HFTState) -> dict:
     t0 = time.perf_counter_ns()
-    res = await mock_db("write_trade_record", profile="hft_tick", symbol=state["symbol"], account_id=state["account_id"])
+    res = await mock_memory_lookup("write_trade_record", symbol=state["symbol"], account_id=state["account_id"])
     dt = (time.perf_counter_ns() - t0) / 1000
     return {"step_times": {"step_4": dt}, "results": {"step_4": res}}
 
@@ -130,7 +130,7 @@ async def hft_step_4_node(state: HFTState) -> dict:
 async def hft_step_5_node(state: HFTState) -> dict:
     t0 = time.perf_counter_ns()
     trade_id = state["results"].get("step_4", {}).get("trade_id", "UNKNOWN")
-    res = await mock_file("log_audit", profile="hft_tick", trade_id=trade_id)
+    res = await mock_state_write("log_audit", trade_id=trade_id)
     dt = (time.perf_counter_ns() - t0) / 1000
     return {"step_times": {"step_5": dt}, "results": {"step_5": res}}
 
