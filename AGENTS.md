@@ -1,328 +1,269 @@
-# AGENTS.md — Velocity Runtime (v0 / MVP)
+# AGENTS.md — Velocity Runtime (v1)
 
 **Project codename:** Velocity
-**Document version:** 1.0
+**Document version:** 2.0 (v1 scope)
 **Status:** Active build spec
 **Owner:** Thrishal Doma
-**Scope:** This document is the single source of truth for building the v0 MVP of a low-latency agent tool-call execution runtime. Any AI coding agent (Claude Code, Cursor, etc.) or human contributor should be able to build the entire MVP from this file alone.
+**Supersedes:** v0 spec (v0.1.0 released — runtime core + baseline benchmark, hypothesis partially validated)
+**Scope:** This document is the single source of truth for building v1 of the Velocity runtime. It assumes the v0 codebase already exists and builds directly on top of it. Any AI coding agent (Claude Code, Cursor, etc.) or human contributor should be able to implement v1 entirely from this file plus the existing v0 repo.
 
 ---
 
-## 1. Executive Summary
+## 1. Where v1 Picks Up
 
-Velocity is an execution runtime for AI agent tool-calling that replaces standard Python-based orchestration (LangGraph, raw MCP-over-stdio) with a purpose-built, systems-engineered layer. The runtime targets **5–10x lower tool-call round-trip latency** by eliminating three specific sources of overhead: JSON serialization cost, cold-start latency, and serial (non-overlapped) scheduling of LLM think-time against tool I/O.
+v0 shipped a real, working runtime and a fair, reproducible benchmark. It proved the runtime beats LangGraph by up to 2.2x at p99 under load. It also surfaced two honest findings that limited the full 5–10x hypothesis from holding:
 
-The v0 deliverable is **not a product** — it is a runtime core plus a reproducible, honest benchmark proving or disproving the central latency claim, published as a public repo with a written report.
+1. **Bounded worker pools lose to unbounded Python coroutines at extreme concurrency** — at concurrency=1000, raw MCP (no resource cap) beat Velocity's fixed 64-worker pool, because 5,000 simultaneous tool-call requests queued against only 64 warm workers.
+2. **Binary protocol savings are invisible when tool I/O dominates** — the codec saves <5μs per call, but the v0 mock tools sleep 5–50ms, so the saving is a rounding error against ~90ms of cumulative I/O per task.
 
-**Non-goals for v0:** multi-agent orchestration, persistent memory, planning/reasoning frameworks, UI, auth, multi-tenancy, billing, production deployment tooling. Anything not required to prove the latency claim is explicitly out of scope and must not be built.
+v1 exists to close both gaps with real engineering, not by re-framing the benchmark to hide them. A third improvement — giving the baseline a fair resource cap — exists to make the eventual win defensible under scrutiny rather than an artifact of comparing a capped system to an uncapped one.
 
----
-
-## 2. Problem Statement
-
-Standard agent tool-calling pipelines look like this:
-
-```
-LLM decides to call tool → serialize request (JSON) → dispatch to process/service
-   → (possible cold start) → tool executes → serialize response (JSON)
-   → deserialize on receipt → LLM resumes
-```
-
-Every hop above adds latency that is invisible in chat UX (a few hundred ms doesn't matter to a human reading text) but is fatal in latency-sensitive domains: algorithmic trading copilots, real-time voice agents, robotics control loops, real-time ad bidding, and interactive simulations/games.
-
-No existing agent framework treats tool-call latency as a first-class systems problem. Velocity does.
+**v1 non-goals (still out of scope):** production deployment tooling, SDK/client libraries, multi-region distribution, real LLM-in-the-loop benchmarking, generalized plugin architecture for arbitrary tools. v1 is still a benchmark-driven runtime project, not a shipped product.
 
 ---
 
-## 3. Core Hypothesis (what this MVP must prove)
+## 2. v1 Scope — Three Workstreams
 
-> A purpose-built runtime, applying (a) pre-warmed worker pools, (b) a binary wire protocol, and (c) an async scheduler that overlaps LLM think-time with tool I/O, reduces p99 tool-call round-trip latency by 5–10x versus LangGraph and raw MCP baselines, under both single-call and concurrent-load conditions.
-
-Every component built in this spec exists to test this hypothesis. If a proposed feature does not serve this test, it does not belong in v0.
-
----
-
-## 4. High-Level Architecture
-
-```
-+----------------------+
-|   Agent Loop / LLM    |   (decides which tool to call, when)
-+----------+-----------+
-           | tool_call(name, args)
-           v
-+-----------------------------------------------+
-|              VELOCITY RUNTIME                  |
-|                                                 |
-|  +-------------+   +----------------------+    |
-|  | Worker Pool |   |  Async Scheduler     |    |
-|  | (pre-warmed)|<--| (overlaps I/O with   |    |
-|  +-------------+   |  LLM think-time)     |    |
-|         |           +----------------------+    |
-|         v                                       |
-|  +-------------------------------------+        |
-|  |   Binary Wire Protocol (codec)      |        |
-|  +-------------------------------------+        |
-|         |                                       |
-|  +-------------------------------------+        |
-|  |  Connection-Pooled Transport Layer  |        |
-|  +-------------------------------------+        |
-+----------+--------------------------------------+
-           v
-+----------------------+
-|   Tool Executors       |  (mock DB, mock HTTP API, mock file I/O)
-+----------------------+
-```
-
----
-
-## 5. Tech Stack
-
-| Layer | Choice | Rationale |
+| # | Workstream | Answers |
 |---|---|---|
-| Core runtime language | **Rust** | Mature async ecosystem (tokio), memory safety without GC pauses, predictable latency |
-| Async runtime | `tokio` | Industry standard, `io_uring` support available via `tokio-uring` if needed later |
-| Wire protocol | Custom length-prefixed binary format (see §7) | Avoids JSON/Protobuf allocation overhead |
-| Baseline A | LangGraph (Python) | Most common agent orchestration framework today |
-| Baseline B | Raw MCP server (Python or TS reference impl) | Represents "no framework" floor |
-| Benchmarking harness | Rust binary + Python driver scripts | Rust for precision timing, Python for baseline compatibility |
-| Metrics/reporting | `hdrhistogram` (Rust) for latency percentiles; results exported to CSV/JSON | Standard for accurate p50/p95/p99 capture |
-| Load generation | Custom async load generator (part of harness) | Full control over concurrency patterns |
+| 1 | **Elastic worker pool** | Is pool size actually the bottleneck, and is there a size where Velocity beats raw MCP outright? |
+| 2 | **Low-latency task profile (`hft_tick`)** | Does the 5–10x hypothesis hold in the domain it was written for (sub-millisecond tools)? |
+| 3 | **Fair-capped baseline** | Does Velocity still win once the baseline plays by the same resource-limit rules? |
 
-**Explicitly rejected for v0:** C++ (learning curve cost vs. timeline), Protobuf (still allocates, still has overhead vs. hand-rolled binary), gRPC (adds HTTP/2 framing overhead we're trying to avoid measuring around).
+Each workstream produces its own chart and its own paragraph in the report. None of them are allowed to replace or hide the v0 numbers — v1's report appends to the v0 story, it doesn't overwrite it.
 
 ---
 
-## 6. Repository Structure
+## 3. Workstream 1 — Elastic Worker Pool
 
-```
-velocity/
-├── AGENTS.md                     <- this file
-├── README.md                     <- public-facing summary + results
-├── Cargo.toml                    <- workspace root
-├── crates/
-│   ├── velocity-core/            <- worker pool, scheduler, runtime logic
-│   │   ├── src/
-│   │   │   ├── lib.rs
-│   │   │   ├── worker_pool.rs
-│   │   │   ├── scheduler.rs
-│   │   │   └── transport.rs
-│   │   └── Cargo.toml
-│   ├── velocity-protocol/        <- binary codec (encode/decode)
-│   │   ├── src/
-│   │   │   ├── lib.rs
-│   │   │   ├── codec.rs
-│   │   │   └── messages.rs
-│   │   └── Cargo.toml
-│   ├── velocity-tools/           <- mock tool executors
-│   │   ├── src/
-│   │   │   ├── lib.rs
-│   │   │   ├── mock_db.rs
-│   │   │   ├── mock_http.rs
-│   │   │   └── mock_file.rs
-│   │   └── Cargo.toml
-│   └── velocity-bench/           <- benchmark harness + load generator
-│       ├── src/
-│       │   ├── main.rs
-│       │   ├── task_definitions.rs
-│       │   ├── load_gen.rs
-│       │   └── report.rs
-│       └── Cargo.toml
-├── baselines/
-│   ├── langgraph_baseline/       <- Python, Baseline A
-│   │   ├── agent.py
-│   │   ├── tools.py
-│   │   └── requirements.txt
-│   └── raw_mcp_baseline/         <- Python or TS, Baseline B
-│       ├── server.py
-│       └── requirements.txt
-├── results/
-│   ├── raw/                      <- raw benchmark output (CSV/JSON per run)
-│   └── report.md                 <- final written analysis with graphs
-└── scripts/
-    ├── run_all_benchmarks.sh
-    └── generate_graphs.py
-```
+### 3.1 Problem restated
 
----
+v0's `WorkerPool` has a fixed size (default 16, benchmark default 64) set at construction. Under concurrency=1000, this causes queuing that dominates the latency numbers — the bottleneck being measured is queue wait time, not runtime overhead.
 
-## 7. Component Specifications
+### 3.2 Requirements
 
-### 7.1 Binary Wire Protocol (`velocity-protocol`)
+- Add a `pool_size` parameter to the benchmark CLI (`velocity-bench --pool-sizes 64,256,1024,4096`) that runs the **existing** `process_order` task at a **fixed concurrency of 1000** across each listed pool size, holding everything else constant.
+- The worker pool implementation itself does not need to become dynamically self-resizing for v1 — a correctly *parameterized* fixed-size pool, benchmarked across multiple sizes, is sufficient to answer the question in §2. (True elastic/adaptive resizing, i.e., the pool growing and shrinking at runtime in response to load, is a valid v2 follow-up but is explicitly NOT required for v1 — don't build it unless the fixed-size sweep proves inconclusive.)
+- Ensure the pool can actually be constructed at 4096 workers per tool type without unreasonable startup cost — profile pool construction time at each size and record it; if construction time itself becomes a confound (e.g., >500ms to spin up 4096×3 workers), that's a finding to report, not a bug to silently work around.
+- New benchmark output: for each pool size, record p50/p95/p99 task completion time and worker-pool queue wait time specifically (time spent in `acquire()` before a worker is returned) as a separate metric — this isolates "pool contention" from "actual execution time," which is the whole point of the experiment.
 
-**Purpose:** eliminate JSON serialize/deserialize cost on every tool-call hop.
+### 3.3 Required interface additions
 
-**Message format** (length-prefixed, fixed header):
-
-```
-+--------------+--------------+--------------+-------------------+
-|  magic (2B)  | version (1B) | msg_type(1B) | payload_len (4B)  |  <- 8-byte header
-+--------------+--------------+--------------+-------------------+
-|                     payload (variable, binary)                  |
-+-------------------------------------------------------------+
-```
-
-- `magic`: constant `0x56 0x4C` ("VL") for framing validation
-- `msg_type`: `0x01 = ToolCallRequest`, `0x02 = ToolCallResponse`, `0x03 = Heartbeat`, `0x04 = Error`
-- Payload encoding: hand-rolled struct packing (fixed-width fields where possible; variable-length strings prefixed with u32 length). No reflection, no schema negotiation at runtime — schemas are compile-time known for v0's fixed tool set.
-- All integers little-endian.
-
-**Required functions:**
 ```rust
-pub fn encode_tool_call(req: &ToolCallRequest) -> Vec<u8>;
-pub fn decode_tool_call(bytes: &[u8]) -> Result<ToolCallRequest, ProtocolError>;
-pub fn encode_response(resp: &ToolCallResponse) -> Vec<u8>;
-pub fn decode_response(bytes: &[u8]) -> Result<ToolCallResponse, ProtocolError>;
-```
+// velocity-bench/src/task_definitions.rs
+pub struct PoolSweepConfig {
+    pub pool_sizes: Vec<usize>,
+    pub fixed_concurrency: usize,   // 1000, per spec
+    pub warmup_iterations: usize,
+    pub measured_iterations: usize,
+}
 
-**Acceptance criteria:** encode+decode round trip for a representative payload must complete in under 5 microseconds on reference hardware (measured in a dedicated micro-benchmark using `criterion`).
+pub async fn run_pool_sweep(config: PoolSweepConfig) -> Vec<PoolSweepResult>;
 
----
-
-### 7.2 Worker Pool (`velocity-core::worker_pool`)
-
-**Purpose:** eliminate cold-start latency by keeping tool executors warm and ready.
-
-**Requirements:**
-- Fixed-size pool of pre-spawned worker tasks (configurable, default 16) per tool type.
-- Workers are `tokio` tasks holding a persistent connection/handle to their tool executor (mock DB connection, mock HTTP client, open file handle) — never re-established per call.
-- Pool exposes an acquire/release interface with a bounded wait queue (never unbounded spawning — that reintroduces cold-start risk under burst load).
-- Idle workers send lightweight heartbeats (`msg_type = 0x03`) every N seconds to detect and replace dead workers proactively — never lazily on the request path.
-
-**Required interface:**
-```rust
-pub struct WorkerPool {
-    pub async fn acquire(&self, tool_name: &str) -> Result<WorkerHandle, PoolError>;
-    pub fn release(&self, handle: WorkerHandle);
-    pub fn stats(&self) -> PoolStats; // active, idle, queued counts
+pub struct PoolSweepResult {
+    pub pool_size: usize,
+    pub p50_us: u64,
+    pub p95_us: u64,
+    pub p99_us: u64,
+    pub avg_queue_wait_us: u64,
+    pub pool_construction_ms: u64,
 }
 ```
 
-**Acceptance criteria:** acquiring a warm worker under normal load must complete in under 10 microseconds (no allocation, no syscalls beyond a channel recv).
-
----
-
-### 7.3 Async Scheduler (`velocity-core::scheduler`)
-
-**Purpose:** overlap LLM "thinking" latency with tool I/O wherever the agent's task graph allows it (e.g., speculatively pre-fetch a likely-next tool's connection while the LLM is still generating the current tool call's arguments).
-
-**Requirements:**
-- Scheduler accepts a stream of tool-call intents and executes independent calls concurrently (no artificial serialization when calls have no data dependency).
-- Supports a "speculative warm" mode: given a hint of the next likely tool (from a static task graph in the benchmark, not from real LLM introspection — that's out of scope for v0), pre-acquire that worker before it's formally requested.
-- Must expose clean tracing/instrumentation hooks (timestamps at: request received, worker acquired, tool executed, response returned) for the benchmark harness to consume.
-
-**Acceptance criteria:** demonstrable reduction in total task completion time (not just individual call latency) versus fully serial execution, on a task with at least 2 independent tool calls.
-
----
-
-### 7.4 Mock Tool Executors (`velocity-tools`)
-
-Three tools, deliberately simple, deliberately realistic in latency shape:
-
-1. **mock_db** — simulates a DB query with a configurable artificial delay (default 5–15ms jittered) to mimic real query latency; returns a small fixed-schema record.
-2. **mock_http** — simulates an external API call with configurable delay (default 20–50ms jittered) representing a third-party pricing/inventory API.
-3. **mock_file** — simulates a file read/write with minimal delay (default 1–3ms), representing local I/O.
-
-All three must be implemented identically (same delay distributions) across the Velocity runtime, Baseline A, and Baseline B, so the benchmark isolates *orchestration overhead*, not tool-implementation differences.
-
----
-
-### 7.5 Benchmark Harness (`velocity-bench`)
-
-**This is the most important deliverable in the entire MVP.** It IS the product's evidence.
-
-**Task definition (must be identical across all 3 contenders):**
-
-```
-Task: "process_order"
-  1. call mock_db("lookup_account", account_id)
-  2. call mock_db("check_inventory", sku)         [independent of step 1 — can overlap]
-  3. call mock_http("get_pricing", sku)            [depends on step 2]
-  4. call mock_db("write_order_record", ...)       [depends on steps 1 & 3]
-  5. call mock_file("write_confirmation_log", ...) [depends on step 4]
+```rust
+// velocity-core/src/worker_pool.rs — instrumentation addition only, no behavioral change required
+impl WorkerPool {
+    // acquire() must now record time-to-acquire internally and expose it via stats(),
+    // so the bench harness can separate "waiting for a worker" from "worker doing the tool call."
+    pub fn stats(&self) -> PoolStats; // extend existing struct with avg_wait_us field
+}
 ```
 
-This task has both dependent and independent branches — a realistic shape, not a trivial linear chain — so the scheduler's overlap capability is actually exercised and visible in the numbers.
+### 3.4 Output
 
-**Required measurements, per contender, per run:**
-- Per-call latency: p50, p95, p99, max
-- Total task completion time: p50, p95, p99
-- Cold-start penalty (first call vs. steady-state calls)
-- Throughput and latency degradation under concurrent load: 10, 100, 1,000 simultaneous task executions
+- `results/raw/pool_sweep_<size>.json` — one file per pool size tested
+- A new chart: `results/graphs/pool_size_vs_latency.png` — x-axis pool size (log scale: 64, 256, 1024, 4096), y-axis p99 latency (log scale), with a horizontal reference line marking raw MCP's p99 at concurrency=1000 from the v0 results, so the crossover point (if any) is visually obvious.
+- A new paragraph in `results/report.md`, computed programmatically (per the v0 fix — no hardcoded prose): state the pool size at which Velocity's p99 first drops below raw MCP's p99, or state plainly that no tested size crossed over, with the queue-wait breakdown as supporting evidence either way.
 
-**Output format:** raw results as CSV/JSON in `results/raw/`, one file per (contender × concurrency level) combination. Final human-readable report in `results/report.md` with generated graphs (bar charts of p50/p95/p99 per contender, line chart of latency vs. concurrency).
+### 3.5 Acceptance criteria
 
-**Acceptance criteria for the MVP as a whole:** the report must present real numbers for all three contenders at all four concurrency levels, with methodology described in enough detail that an external engineer could reproduce every result from the repo alone. If Velocity does NOT beat the baselines in some dimension, that must be reported honestly, not omitted.
-
----
-
-## 8. Baselines — Build Requirements
-
-### 8.1 Baseline A — LangGraph
-- Implement the identical `process_order` task graph using LangGraph's standard tool-calling with the three mock tools re-implemented in Python with matching delay distributions.
-- Use standard LangGraph patterns — no artificial handicapping, no artificial optimization. This must represent a competent, idiomatic LangGraph implementation.
-
-### 8.2 Baseline B — Raw MCP
-- Implement the same task using a bare MCP server (stdio or SSE transport, whichever is more standard at implementation time) with no orchestration framework layered on top — just direct tool-call requests issued in the same dependency order as the task graph.
-
-Both baselines must be instrumented with the same timestamp hooks (request sent, response received) so measurement methodology is apples-to-apples.
+- Sweep runs via `./scripts/run_all_benchmarks.sh --with-pool-sweep` (additive flag; default run behavior unchanged) or an equivalent dedicated script `scripts/run_pool_sweep.sh`.
+- Report states, in one sentence generated from real numbers, whether a crossover pool size exists and what it is. No editorializing beyond what the numbers show.
 
 ---
 
-## 9. Milestones & Timeline
+## 4. Workstream 2 — Low-Latency Task Profile (`hft_tick`)
 
-| Week | Deliverables | Exit criteria |
+### 4.1 Problem restated
+
+The `process_order` task's mock tools sleep 5–50ms. That's a fine proxy for a typical web-app agent, but it's the wrong domain for testing Velocity's actual thesis (agent infra for latency-sensitive systems: trading, robotics, real-time voice). At that delay scale, no orchestration layer's overhead is visible — you're measuring `sleep()`, not the runtime.
+
+### 4.2 Requirements
+
+- Add a second, fully independent task definition, `hft_tick`, structurally similar to `process_order` (a small dependency graph with both independent and dependent steps — reuse the same 5-step shape for comparability) but with tool delays reduced to **50–500 microseconds**, jittered, matching the "sub-millisecond tool" domain described in the pitch.
+- Implement matching low-latency mock tools: `mock_memory_lookup` (in-memory hashmap read, ~50–150μs), `mock_calc_engine` (a small deterministic computation simulating a pricing/risk calculation, ~100–300μs), `mock_state_write` (in-memory state mutation, ~50–200μs). These replace `mock_db`/`mock_http`/`mock_file` for this task only — the original three tools and `process_order` task remain unchanged and continue to be benchmarked as-is.
+- These new tools must be implemented identically (same delay distributions) across Velocity, the LangGraph baseline, and the raw MCP baseline — same fairness requirement as v0 §7.4/§8.
+- Run the full existing concurrency sweep (1, 10, 100, 1000) against `hft_tick` for all three contenders, exactly as v0 did for `process_order`.
+
+### 4.3 Required additions
+
+```
+crates/velocity-tools/src/
+  ├── mock_memory_lookup.rs   (new)
+  ├── mock_calc_engine.rs     (new)
+  └── mock_state_write.rs     (new)
+
+crates/velocity-bench/src/task_definitions.rs
+  // add hft_tick task graph alongside existing process_order
+
+baselines/langgraph_baseline/tools.py    // add matching Python implementations
+baselines/raw_mcp_baseline/server.py     // add matching Python implementations
+```
+
+### 4.4 Output
+
+- Results recorded and reported exactly like `process_order` — same JSON schema, same table format, tagged by task name so both task profiles coexist in one report without confusion.
+- New bar charts per concurrency level for `hft_tick`, analogous to the existing `bar_chart_c*.png` set — name them distinctly (`bar_chart_hft_c1.png`, etc.) so v0's charts aren't overwritten.
+- New line chart: `latency_vs_concurrency_hft.png`, same style as the existing one, for direct visual comparison against the `process_order` version.
+- Report must explicitly state, with real computed numbers, whether the 5–10x hypothesis holds under this profile — this is the single most important number v1 produces, since it's the direct test of the core thesis in its intended domain.
+
+### 4.5 Acceptance criteria
+
+- `hft_tick` tool delays are verified (via a quick unit test asserting sampled delays fall in the 50–500μs range) before any benchmark numbers are trusted — a task profile that accidentally sleeps in milliseconds again defeats the entire point.
+- Both task profiles run from the same single `./scripts/run_all_benchmarks.sh` invocation (or a clearly documented additive flag) — v1 should not require a separate undocumented manual process to reproduce.
+
+---
+
+## 5. Workstream 3 — Fair-Capped Baseline
+
+### 5.1 Problem restated
+
+Raw MCP's win at concurrency=1000 in v0 partly reflects the fact that it has no concurrency limit at all — 1000 simultaneous `asyncio` coroutines each independently sleeping, with no queuing, no contention, and no bound on in-flight connections. No real production system runs with unbounded concurrent connections to a downstream dependency. This makes the v0 comparison at high concurrency slightly unfair in raw MCP's favor.
+
+### 5.2 Requirements
+
+- Add a second variant of the raw MCP baseline, `raw_mcp_baseline_capped`, that wraps all tool calls behind an `asyncio.Semaphore` (or equivalent bounded resource pool) with a configurable limit.
+- Run this capped variant at the same pool sizes used in Workstream 1 (64, 256, 1024, 4096) so the two systems (Velocity and capped raw MCP) are compared at matching resource limits, not just matching task graphs.
+- This variant must be clearly labeled as a distinct contender in all output (`raw_mcp_capped_64`, `raw_mcp_capped_256`, etc.) — never silently replace or average with the original uncapped raw MCP results. The original v0 uncapped baseline results remain in the report unchanged; the capped variant is additive context, not a replacement.
+
+### 5.3 Required additions
+
+```
+baselines/raw_mcp_baseline_capped/
+  ├── server.py          # same task logic as raw_mcp_baseline, wrapped with semaphore
+  └── requirements.txt
+```
+
+```python
+# server.py — core addition
+semaphore = asyncio.Semaphore(pool_size)  # pool_size passed via CLI arg or env var
+
+async def call_tool_capped(tool_fn, *args):
+    async with semaphore:
+        return await tool_fn(*args)
+```
+
+### 5.4 Output
+
+- Extend the pool-size-vs-latency chart from Workstream 1 (§3.4) to include a third line: capped raw MCP at each pool size, alongside Velocity and (as a flat reference line) the original uncapped raw MCP number. This produces the single most important chart in v1 — three-way, apples-to-apples, at matching resource limits.
+- Report paragraph, computed programmatically: state plainly whether Velocity beats capped raw MCP at any tested pool size, and at which one, exactly as required in §3.5.
+
+### 5.5 Acceptance criteria
+
+- Capped variant produces materially different (higher) latency than the uncapped original at concurrency=1000 for at least the smallest tested pool size (64) — this is a sanity check proving the semaphore is actually constraining concurrency and not a no-op.
+
+---
+
+## 6. Repository Structure Changes (delta from v0)
+
+```
+velocity/
+├── crates/
+│   ├── velocity-core/
+│   │   └── src/worker_pool.rs        # MODIFIED: expose queue-wait stats
+│   ├── velocity-tools/
+│   │   └── src/
+│   │       ├── mock_memory_lookup.rs # NEW
+│   │       ├── mock_calc_engine.rs   # NEW
+│   │       └── mock_state_write.rs   # NEW
+│   └── velocity-bench/
+│       └── src/
+│           ├── task_definitions.rs   # MODIFIED: add hft_tick, PoolSweepConfig
+│           └── pool_sweep.rs         # NEW
+├── baselines/
+│   ├── langgraph_baseline/
+│   │   └── tools.py                  # MODIFIED: add hft_tick tools
+│   ├── raw_mcp_baseline/
+│   │   └── server.py                 # MODIFIED: add hft_tick tools
+│   └── raw_mcp_baseline_capped/      # NEW
+│       ├── server.py
+│       └── requirements.txt
+├── results/
+│   ├── raw/
+│   │   ├── pool_sweep_*.json         # NEW
+│   │   └── hft_tick_*.json           # NEW
+│   ├── graphs/
+│   │   ├── pool_size_vs_latency.png  # NEW
+│   │   ├── bar_chart_hft_c*.png      # NEW
+│   │   └── latency_vs_concurrency_hft.png  # NEW
+│   └── report.md                     # MODIFIED: append v1 sections, don't remove v0 sections
+└── scripts/
+    ├── run_pool_sweep.sh             # NEW (or additive flag on existing script — implementer's choice)
+    └── run_all_benchmarks.sh         # MODIFIED: orchestrate v0 + v1 runs
+```
+
+---
+
+## 7. Coding Standards (carried over from v0, unchanged)
+
+- `cargo fmt` and `cargo clippy --all-targets -- -D warnings` must pass clean.
+- No `unwrap()` in runtime hot paths.
+- Every public function added in this spec requires a doc comment explaining latency-relevant behavior, consistent with v0's standard.
+- Commit messages reference the workstream (e.g., `feat(pool): add configurable pool-size sweep per §3.2`).
+- **New for v1:** any change to `results/report.md`'s generation logic must preserve the v0 sections unmodified in structure — v1 findings are appended, not blended into or replacing the v0 narrative. A reader should be able to see the full v0→v1 story in one document.
+
+---
+
+## 8. Testing Requirements (additions to v0)
+
+- Unit test asserting `hft_tick` mock tool delays sample within the 50–500μs band (per §4.5).
+- Unit test verifying `raw_mcp_baseline_capped`'s semaphore actually blocks beyond its configured limit (e.g., spin up `pool_size + 10` concurrent calls, assert no more than `pool_size` are in-flight at any instant).
+- Integration test: `pool_sweep` at a small pool size (e.g., 4) and a small concurrency (e.g., 20) completes correctly and produces non-zero queue-wait time, proving the queue-wait instrumentation actually measures something.
+
+---
+
+## 9. Milestones
+
+| Phase | Deliverables | Exit criteria |
 |---|---|---|
-| **Week 1** | `velocity-protocol` codec complete + micro-benchmarked; `velocity-core` worker pool complete; basic scheduler skeleton | Codec round-trips under 5μs; worker acquire under 10μs; unit tests passing |
-| **Week 2** | Mock tools implemented (all 3, matching across runtime + both baselines); full `process_order` task running end-to-end on all 3 contenders; single-request latency numbers collected | All 3 contenders produce correct output for the task; first raw latency numbers exist |
-| **Week 3** | Load testing at 10/100/1000 concurrency; report.md written with graphs; repo cleaned, README written, published | Reproducible benchmark run documented step-by-step; honest report published publicly |
+| **Phase 1** | Workstream 1: pool-size sweep implemented, instrumented, benchmarked at 64/256/1024/4096 | `pool_size_vs_latency.png` exists with real data; report states crossover point or its absence |
+| **Phase 2** | Workstream 2: `hft_tick` task + tools implemented across all 3 contenders, benchmarked at all 4 concurrency levels | Report states, with real numbers, whether 5–10x hypothesis holds under this profile |
+| **Phase 3** | Workstream 3: capped raw MCP baseline implemented, benchmarked at same pool sizes as Phase 1 | Three-way pool-size chart exists; report states whether/where Velocity beats the fair-capped baseline |
+| **Phase 4** | Report consolidation, README v1 section, tag `v1.0.0` | `results/report.md` contains v0 + all three v1 sections, internally consistent, regenerable from one script |
+
+No fixed week estimates given — unlike v0, this is scoped by workstream completion, not calendar time, since Phase 2's result (does the hypothesis hold in the intended domain) may reasonably prompt scope changes to Phases 1 and 3 depending on what it shows.
 
 ---
 
-## 10. Coding Standards
+## 10. Success Metrics — v1 Definition of Done
 
-- **Rust code:** `cargo fmt` and `cargo clippy --all-targets -- -D warnings` must pass clean before any commit is considered done. No `unwrap()` in runtime hot paths — use proper `Result` propagation; `unwrap()` is acceptable only in test code or the benchmark harness's non-hot-path setup code.
-- **No premature abstraction.** Do not build a generic "plugin system" for tools — three hardcoded tool implementations are correct for v0. Generalize only after the hypothesis is validated.
-- **Every public function in `velocity-core` and `velocity-protocol` requires a doc comment** explaining latency-relevant behavior (e.g., "this function performs zero heap allocations on the fast path").
-- **Instrumentation is not optional.** Every hop in the runtime that could plausibly show up as latency in the benchmark must emit a timestamp via the tracing hooks — retrofitting instrumentation after the fact produces untrustworthy numbers.
-- **Commit messages** should reference which section of this AGENTS.md they implement (e.g., `feat(protocol): implement binary codec per §7.1`).
-
----
-
-## 11. Testing Requirements
-
-- Unit tests for codec encode/decode round trips, including malformed-input edge cases (truncated payload, bad magic bytes, oversized payload).
-- Integration test running the full `process_order` task against the Velocity runtime with mock tools, asserting correct output ordering and dependency resolution.
-- Load test harness must be re-runnable via a single script (`scripts/run_all_benchmarks.sh`) with no manual steps, to guarantee reproducibility for anyone cloning the repo.
+1. All three workstreams (§3, §4, §5) have real, checked-in raw data and generated charts — no workstream is reported on without backing data.
+2. `results/report.md` answers, in plain sentences computed from real numbers (never hardcoded), all three of:
+   - Is there a worker pool size at which Velocity beats raw MCP at concurrency=1000?
+   - Does the 5–10x latency hypothesis hold under the `hft_tick` low-latency task profile?
+   - Does Velocity beat raw MCP once raw MCP is given a matching resource cap?
+3. The full v1 suite (v0 tasks + `hft_tick` + pool sweep + capped baseline) is runnable via a single documented command, per the reproducibility bar set in v0.
+4. If any of the three answers above is "no" or "partially," the report says so as plainly as v0's did — v1's job is to close gaps with real engineering, not to reword the conclusion until it sounds better.
 
 ---
 
-## 12. Success Metrics (how we know the MVP is done)
+## 11. What Comes After v1 (context only, not in scope)
 
-1. A public GitHub repo exists with all code above, buildable via `cargo build --release` and `./scripts/run_all_benchmarks.sh`.
-2. `results/report.md` contains real, reproducible latency numbers for all 3 contenders across all 4 concurrency levels.
-3. The report states plainly whether the 5–10x hypothesis held, partially held, or did not hold — with numbers, not adjectives.
-4. An external engineer unfamiliar with the project can clone the repo and reproduce the headline number within a reasonable margin, using only the README.
-
----
-
-## 13. Known Risks / Explicit Non-Handling for v0
-
-- **Real LLM think-time overlap is simulated, not real.** v0 uses a static task graph with known dependencies rather than actual live LLM tool-call decisions. This is an accepted simplification — clearly disclosed in the report — because wiring a live LLM into the benchmark loop would introduce non-deterministic latency that pollutes the very numbers we're trying to isolate.
-- **Single-machine benchmarking only.** No distributed/multi-region testing in v0; this is a controlled, single-host comparison. Disclosed as a scope limitation, not hidden.
-- **Mock tools, not real integrations.** Real-world tools (actual DBs, actual third-party APIs) have their own latency variance that would need separate characterization — explicitly deferred to a post-MVP phase.
+- True elastic/adaptive pool resizing at runtime (rather than a benchmarked fixed-size sweep)
+- Real LLM-in-the-loop benchmarking, replacing the static task graph
+- SDK/client libraries for adoption without a Rust rewrite
+- Distributed/multi-region deployment
 
 ---
 
-## 14. What Comes After v0 (not to be built now, but noted for context)
-
-- Real LLM-in-the-loop benchmarking (replace static task graph with live model decisions)
-- SDK/client libraries (Python, TS) so real agent frameworks can adopt the runtime without rewriting in Rust
-- C++ implementation for teams requiring it (HFT-adjacent shops)
-- Multi-tool-type generalization beyond the 3 hardcoded mocks
-- Distributed/multi-region deployment support
-
-None of the above is in scope until the MVP hypothesis (§3) is proven with real numbers.
-
----
-
-*End of spec. Any ambiguity encountered during implementation should be resolved in favor of the narrowest interpretation that still lets the benchmark in §7.5 run honestly — when in doubt, cut scope, not rigor.*
+*End of spec. Where this document is ambiguous, resolve in favor of whatever keeps the v0→v1 comparison honest and reproducible — if a shortcut would make v1's numbers look better without actually being a fairer or faster system, it does not belong in this build.*
