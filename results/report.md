@@ -101,7 +101,7 @@ To investigate why unbounded Python coroutines can outperform a bounded Rust wor
 
 ### Workstream 3 Findings: Fair-Capped Baseline Analysis
 
-- **Fair-Capped Crossover**: When evaluated against `raw_mcp_baseline_capped` at matching resource limits (concurrency=1000), Velocity's p99 latency drops below capped raw MCP starting at **pool_size=64**.
+- **Fair-Capped Comparison**: When evaluated against `raw_mcp_baseline_capped` at matching resource limits (concurrency=1000), Velocity achieves lower p99 latency than capped raw MCP at pool sizes **64, 256, 4096**.
 ## 5. Experiment 3: Sub-millisecond HFT Profile (`hft_tick`)
 
 In real-time trading and robotics control loops, tool I/O completes in microseconds. At this scale, standard framework serialization and scheduling overheads become the primary bottleneck.

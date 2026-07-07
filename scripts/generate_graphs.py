@@ -341,7 +341,7 @@ def generate_text_report(results: dict, output_path: Path):
     unbound_val = results[unbound_mcp_k]["task_stats"]["p99_us"] if unbound_mcp_k in results else 0
     
     crossover_ps = None
-    capped_crossover_ps = None
+    capped_winning_sizes = []
     for ps in pool_sizes:
         vk = ("velocity", "process_order", ps, 1000)
         mk = ("raw_mcp_capped", "process_order", ps, 1000)
@@ -358,8 +358,8 @@ def generate_text_report(results: dict, output_path: Path):
             ratio_str = "N/A"
         if crossover_ps is None and v_val > 0 and unbound_val > 0 and v_val < unbound_val:
             crossover_ps = ps
-        if capped_crossover_ps is None and v_val > 0 and m_val > 0 and v_val < m_val:
-            capped_crossover_ps = ps
+        if v_val > 0 and m_val > 0 and v_val < m_val:
+            capped_winning_sizes.append(str(ps))
         lines.append(f"| {ps} | {v_val:,.0f} | {m_val:,.0f} | {unbound_val:,.0f} | {v_wait:,.0f} | {v_const} | **{ratio_str}** |")
     
     v_64_k = ("velocity", "process_order", 64, 1000)
@@ -377,10 +377,11 @@ def generate_text_report(results: dict, output_path: Path):
         lines.append(f"- **Crossover Threshold**: At concurrency=1000, Velocity's p99 latency remains above raw MCP's unbounded p99 even at pool_size=4096 (gap: {gap_str}). This demonstrates that bounded worker pools require sufficient sizing or dynamic work-stealing when competing against unbounded coroutines.")
     lines.append(f"- **Queue Contention Analysis**: At `pool_size=64`, the average worker queue wait time is **{v_64_wait:,.0f} μs**, accounting for approximately **{wait_pct:.1f}%** of median task completion time (`{v_64_p50:,.0f} μs`). This confirms queue contention in bounded MPSC channels as the primary bottleneck under heavy concurrency bursts when pools are undersized.\n")
     lines.append("### Workstream 3 Findings: Fair-Capped Baseline Analysis\n")
-    if capped_crossover_ps:
-        lines.append(f"- **Fair-Capped Crossover**: When evaluated against `raw_mcp_baseline_capped` at matching resource limits (concurrency=1000), Velocity's p99 latency drops below capped raw MCP starting at **pool_size={capped_crossover_ps}**.")
+    if capped_winning_sizes:
+        winning_str = ", ".join(capped_winning_sizes)
+        lines.append(f"- **Fair-Capped Comparison**: When evaluated against `raw_mcp_baseline_capped` at matching resource limits (concurrency=1000), Velocity achieves lower p99 latency than capped raw MCP at pool sizes **{winning_str}**.")
     else:
-        lines.append("- **Fair-Capped Crossover**: At concurrency=1000, Velocity's p99 latency did not drop below capped raw MCP across the tested pool sizes.")
+        lines.append("- **Fair-Capped Comparison**: At concurrency=1000, Velocity's p99 latency did not beat capped raw MCP across the tested pool sizes.")
 
     # Section 5: HFT Tick Profile
     lines.append("## 5. Experiment 3: Sub-millisecond HFT Profile (`hft_tick`)\n")
