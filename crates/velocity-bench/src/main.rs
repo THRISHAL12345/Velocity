@@ -13,7 +13,7 @@ use std::path::PathBuf;
 
 use load_gen::{run_velocity_benchmark, BenchConfig};
 use report::{generate_report, print_summary, write_csv_report, write_json_report};
-use task_definitions::create_concurrent_tasks;
+use task_definitions::{create_concurrent_tasks, create_hft_tasks};
 
 /// Velocity Benchmark Harness
 #[derive(Parser, Debug)]
@@ -39,6 +39,14 @@ struct Args {
     /// Number of measured iterations
     #[arg(short, long, default_value = "50")]
     iterations: usize,
+
+    /// Task profile to benchmark ("process_order" or "hft_tick")
+    #[arg(long, default_value = "process_order")]
+    profile: String,
+
+    /// Pool sizes to sweep (comma-separated, e.g., "64,256,1024,4096"). Overrides --pool-size if set.
+    #[arg(long)]
+    sweep_pool_sizes: Option<String>,
 }
 
 #[tokio::main]
@@ -58,52 +66,79 @@ async fn main() {
         .filter_map(|s| s.trim().parse().ok())
         .collect();
 
+    // Parse pool sizes
+    let pool_sizes: Vec<usize> = if let Some(ref sweep) = args.sweep_pool_sizes {
+        sweep
+            .split(',')
+            .filter_map(|s| s.trim().parse().ok())
+            .collect()
+    } else {
+        vec![args.pool_size]
+    };
+    let is_sweep = args.sweep_pool_sizes.is_some() || pool_sizes.len() > 1;
+
     // Ensure output directory exists
     std::fs::create_dir_all(&args.output_dir).expect("failed to create output directory");
 
     println!("\n🚀 Velocity Benchmark Harness");
-    println!("   Pool size: {} workers/tool", args.pool_size);
+    println!("   Profile: {}", args.profile);
+    println!("   Pool sizes: {:?} workers/tool", pool_sizes);
     println!("   Warm-up: {} iterations", args.warmup);
     println!("   Measured: {} iterations", args.iterations);
     println!("   Concurrency levels: {:?}\n", concurrency_levels);
 
     let mut all_reports = Vec::new();
 
-    for &concurrency in &concurrency_levels {
-        println!(
-            "⏱  Running benchmark at concurrency={}...",
-            concurrency
-        );
+    for &pool_size in &pool_sizes {
+        for &concurrency in &concurrency_levels {
+            println!(
+                "⏱  Running benchmark [profile={}, pool={}, concurrency={}]...",
+                args.profile, pool_size, concurrency
+            );
 
-        let tasks = create_concurrent_tasks(concurrency);
+            let tasks = if args.profile == "hft_tick" {
+                create_hft_tasks(concurrency)
+            } else {
+                create_concurrent_tasks(concurrency)
+            };
 
-        let config = BenchConfig {
-            concurrency,
-            pool_size: args.pool_size,
-            warmup_iterations: args.warmup,
-            measured_iterations: args.iterations,
-        };
+            let config = BenchConfig {
+                concurrency,
+                pool_size,
+                warmup_iterations: args.warmup,
+                measured_iterations: args.iterations,
+                profile: args.profile.clone(),
+            };
 
-        let result = run_velocity_benchmark(&config, tasks).await;
-        let report = generate_report("velocity", &result);
+            let result = run_velocity_benchmark(&config, tasks).await;
+            let report = generate_report("velocity", &result, &config);
 
-        // Write raw results
-        if let Err(e) = write_json_report(&report, &args.output_dir) {
-            eprintln!("   ⚠ Failed to write JSON: {}", e);
+            let tag: Option<String> = match (is_sweep, args.profile.as_str()) {
+                (true, "hft_tick") => Some(format!("p{}_hft", pool_size)),
+                (true, _) => Some(format!("p{}", pool_size)),
+                (false, "hft_tick") => Some("hft".to_string()),
+                (false, _) => None,
+            };
+
+            // Write raw results
+            if let Err(e) = write_json_report(&report, &args.output_dir, tag.as_deref()) {
+                eprintln!("   ⚠ Failed to write JSON: {}", e);
+            }
+            if let Err(e) = write_csv_report(&report, &args.output_dir, tag.as_deref()) {
+                eprintln!("   ⚠ Failed to write CSV: {}", e);
+            }
+
+            println!(
+                "   ✓ [pool={}, conc={}]: p50={}μs  p95={}μs  p99={}μs",
+                pool_size,
+                concurrency,
+                report.task_stats.p50_us,
+                report.task_stats.p95_us,
+                report.task_stats.p99_us
+            );
+
+            all_reports.push(report);
         }
-        if let Err(e) = write_csv_report(&report, &args.output_dir) {
-            eprintln!("   ⚠ Failed to write CSV: {}", e);
-        }
-
-        println!(
-            "   ✓ concurrency={}: p50={}μs  p95={}μs  p99={}μs",
-            concurrency,
-            report.task_stats.p50_us,
-            report.task_stats.p95_us,
-            report.task_stats.p99_us
-        );
-
-        all_reports.push(report);
     }
 
     // Print full summary

@@ -8,9 +8,9 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::path::Path;
 
-use crate::load_gen::BenchResult;
+use crate::load_gen::{BenchConfig, BenchResult};
 
-/// Percentile statistics computed from raw latency data.
+/// Percentile statistics for latency measurements (all in microseconds).
 #[derive(Debug, Clone, Serialize)]
 pub struct PercentileStats {
     pub p50_us: u64,
@@ -27,6 +27,8 @@ pub struct PercentileStats {
 pub struct BenchReport {
     pub contender: String,
     pub concurrency: usize,
+    pub pool_size: usize,
+    pub profile: String,
     pub task_stats: PercentileStats,
     pub step_stats: HashMap<String, PercentileStats>,
     pub cold_start_us: u64,
@@ -70,7 +72,7 @@ pub fn compute_percentiles(values: &[u64]) -> PercentileStats {
 }
 
 /// Generates a BenchReport from raw BenchResult data.
-pub fn generate_report(contender: &str, result: &BenchResult) -> BenchReport {
+pub fn generate_report(contender: &str, result: &BenchResult, config: &BenchConfig) -> BenchReport {
     let task_stats = compute_percentiles(&result.task_times_us);
 
     let mut step_stats = HashMap::new();
@@ -81,6 +83,8 @@ pub fn generate_report(contender: &str, result: &BenchResult) -> BenchReport {
     BenchReport {
         contender: contender.to_string(),
         concurrency: result.concurrency,
+        pool_size: config.pool_size,
+        profile: config.profile.clone(),
         task_stats,
         step_stats,
         cold_start_us: result.cold_start_us,
@@ -89,11 +93,12 @@ pub fn generate_report(contender: &str, result: &BenchResult) -> BenchReport {
 }
 
 /// Writes the benchmark report as a JSON file.
-pub fn write_json_report(report: &BenchReport, output_dir: &Path) -> std::io::Result<()> {
-    let filename = format!(
-        "{}_{}.json",
-        report.contender, report.concurrency
-    );
+pub fn write_json_report(report: &BenchReport, output_dir: &Path, tag: Option<&str>) -> std::io::Result<()> {
+    let filename = if let Some(t) = tag {
+        format!("{}_{}_{}.json", report.contender, t, report.concurrency)
+    } else {
+        format!("{}_{}.json", report.contender, report.concurrency)
+    };
     let path = output_dir.join(filename);
     let json = serde_json::to_string_pretty(report)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
@@ -101,11 +106,12 @@ pub fn write_json_report(report: &BenchReport, output_dir: &Path) -> std::io::Re
 }
 
 /// Writes the benchmark report as a CSV file.
-pub fn write_csv_report(report: &BenchReport, output_dir: &Path) -> std::io::Result<()> {
-    let filename = format!(
-        "{}_{}.csv",
-        report.contender, report.concurrency
-    );
+pub fn write_csv_report(report: &BenchReport, output_dir: &Path, tag: Option<&str>) -> std::io::Result<()> {
+    let filename = if let Some(t) = tag {
+        format!("{}_{}_{}.csv", report.contender, t, report.concurrency)
+    } else {
+        format!("{}_{}.csv", report.contender, report.concurrency)
+    };
     let path = output_dir.join(filename);
     let mut wtr = csv::Writer::from_path(path)?;
 

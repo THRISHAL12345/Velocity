@@ -19,6 +19,8 @@ pub struct BenchConfig {
     pub warmup_iterations: usize,
     /// Number of measured iterations.
     pub measured_iterations: usize,
+    /// Task profile name ("process_order" or "hft_tick").
+    pub profile: String,
 }
 
 impl Default for BenchConfig {
@@ -28,6 +30,7 @@ impl Default for BenchConfig {
             pool_size: 64,
             warmup_iterations: 5,
             measured_iterations: 50,
+            profile: "process_order".to_string(),
         }
     }
 }
@@ -43,21 +46,22 @@ pub struct BenchResult {
     pub step_times_us: std::collections::HashMap<String, Vec<u64>>,
     /// Cold-start time (first task) in microseconds.
     pub cold_start_us: u64,
-    /// Steady-state average in microseconds.
+    /// Steady-state average time (excluding cold start) in microseconds.
     pub steady_state_avg_us: u64,
 }
 
 /// Runs the Velocity benchmark at a given concurrency level.
 ///
-/// Executes the `process_order` task `concurrency` times concurrently,
+/// Executes the task graph `concurrency` times concurrently,
 /// collecting per-call and total-task timing data.
 pub async fn run_velocity_benchmark(
     config: &BenchConfig,
     tasks: Vec<Vec<ToolCallIntent>>,
 ) -> BenchResult {
-    let pool = Arc::new(WorkerPool::new(WorkerPoolConfig {
-        pool_size: config.pool_size,
-    }));
+    let pool = Arc::new(WorkerPool::new(WorkerPoolConfig::with_profile(
+        config.pool_size,
+        &config.profile,
+    )));
     let scheduler = Arc::new(Scheduler::new(Arc::clone(&pool)));
 
     // Warm-up phase: run a few iterations without measuring
