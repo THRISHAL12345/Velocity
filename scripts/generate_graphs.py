@@ -41,10 +41,17 @@ def load_results(results_dir: Path) -> dict:
         if contender == "velocity" and pool_size == 0:
             pool_size = 64
         concurrency = data.get("concurrency", 0)
+        if concurrency == 0:
+            continue
         
         key = (contender, profile, pool_size, concurrency)
         results[key] = data
     return results
+
+
+def get_concurrency_levels(results: dict, prof: str):
+    """Helper to get all positive concurrency levels present for a profile."""
+    return sorted(set(cc for (_, p, _, cc) in results.keys() if p == prof and cc > 0))
 
 
 def generate_plots(results: dict, graphs_dir: Path):
@@ -79,12 +86,8 @@ def generate_plots(results: dict, graphs_dir: Path):
     except Exception:
         plt.style.use("default")
 
-    # Helper to get all concurrency levels present for a profile
-    def get_concurrency_levels(prof):
-        return sorted(set(cc for (_, p, _, cc) in results.keys() if p == prof))
-
     # ─── Plot 1: Line Chart of Latency vs Concurrency (process_order) ────────
-    cc_levels = get_concurrency_levels("process_order")
+    cc_levels = get_concurrency_levels(results, "process_order")
     if cc_levels:
         plt.figure(figsize=(9, 6))
         for contender in ["velocity", "langgraph", "raw_mcp"]:
@@ -165,7 +168,7 @@ def generate_plots(results: dict, graphs_dir: Path):
         plt.close()
 
     # ─── Plot 3: Line Chart of Latency vs Concurrency (hft_tick) ─────────────
-    hft_cc = get_concurrency_levels("hft_tick")
+    hft_cc = get_concurrency_levels(results, "hft_tick")
     if hft_cc:
         plt.figure(figsize=(9, 6))
         for contender in ["velocity", "langgraph", "raw_mcp"]:
@@ -313,7 +316,7 @@ def generate_text_report(results: dict, output_path: Path):
     lines.append("## 3. Experiment 1: Standard Web-App Workload (`process_order`)\n")
     lines.append("![Latency vs Concurrency](./graphs/latency_vs_concurrency.png)\n")
     
-    cc_levels = sorted(set(cc for (_, p, _, cc) in results.keys() if p == "process_order"))
+    cc_levels = get_concurrency_levels(results, "process_order")
     for cc in cc_levels:
         lines.append(f"### Concurrency = {cc}\n")
         lines.append(f"![Bar Chart Concurrency {cc}](./graphs/bar_chart_c{cc}.png)\n")

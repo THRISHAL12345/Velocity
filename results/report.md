@@ -34,13 +34,6 @@ All contenders execute identical task graphs with matching simulated delay distr
 
 ![Latency vs Concurrency](./graphs/latency_vs_concurrency.png)
 
-### Concurrency = 0
-
-![Bar Chart Concurrency 0](./graphs/bar_chart_c0.png)
-
-| Contender | Pool Size | p50 (μs) | p95 (μs) | p99 (μs) | Max (μs) | Mean (μs) | Cold Start (μs) |
-|-----------|-----------|----------|----------|----------|----------|-----------|-----------------|
-
 ### Concurrency = 1
 
 ![Bar Chart Concurrency 1](./graphs/bar_chart_c1.png)
