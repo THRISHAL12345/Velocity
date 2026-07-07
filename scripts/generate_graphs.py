@@ -349,7 +349,13 @@ def generate_text_report(results: dict, output_path: Path):
         m_val = results[mk]["task_stats"]["p99_us"] if mk in results else 0
         v_wait = results[vk].get("avg_queue_wait_us", 0) if vk in results else 0
         v_const = results[vk].get("pool_construction_ms", 0) if vk in results else 0
-        ratio_str = f"{m_val/v_val:.1f}x faster" if v_val > 0 and m_val > 0 else "N/A"
+        if v_val > 0 and m_val > 0:
+            if m_val >= v_val:
+                ratio_str = f"{m_val/v_val:.1f}x faster"
+            else:
+                ratio_str = f"{v_val/m_val:.1f}x slower"
+        else:
+            ratio_str = "N/A"
         if crossover_ps is None and v_val > 0 and unbound_val > 0 and v_val < unbound_val:
             crossover_ps = ps
         if capped_crossover_ps is None and v_val > 0 and m_val > 0 and v_val < m_val:

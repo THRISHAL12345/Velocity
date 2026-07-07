@@ -91,7 +91,7 @@ To investigate why unbounded Python coroutines can outperform a bounded Rust wor
 |---|---|---|---|---|---|---|
 | 64 | 826,879 | 1,639,040 | 152,996 | 52,503 | 0 | **2.0x faster** |
 | 256 | 391,679 | 455,867 | 152,996 | 10,944 | 1 | **1.2x faster** |
-| 1024 | 342,271 | 140,531 | 152,996 | 615 | 1 | **0.4x faster** |
+| 1024 | 342,271 | 140,531 | 152,996 | 615 | 1 | **2.4x slower** |
 | 4096 | 334,079 | 398,621 | 152,996 | 245 | 5 | **1.2x faster** |
 
 ### Workstream 1 Findings: Pool Size Sweep Analysis
