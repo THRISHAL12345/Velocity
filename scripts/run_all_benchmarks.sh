@@ -77,10 +77,10 @@ cargo run --release -p velocity-bench -- \
     --profile process_order
 echo ""
 
-echo "📡 [2/4] Running bounded raw MCP pool size sweep (concurrency=1000)..."
-cd "$PROJECT_ROOT/baselines/raw_mcp_baseline"
+echo "📡 [2/4] Running fair-capped raw MCP pool size sweep (concurrency=1000)..."
+cd "$PROJECT_ROOT/baselines/raw_mcp_baseline_capped"
 for p in 64 256 1024 4096; do
-    echo "   Testing bounded MCP with semaphore pool_size=$p..."
+    echo "   Testing capped MCP with semaphore pool_size=$p..."
     $PYTHON_CMD server.py --concurrency "1000" --pool-size "$p" --profile process_order
 done
 echo ""
