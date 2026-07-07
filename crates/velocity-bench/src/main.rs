@@ -138,7 +138,9 @@ async fn main() {
                     avg_queue_wait_us: report.avg_queue_wait_us,
                     pool_construction_ms: report.pool_construction_ms,
                 };
-                let sweep_file = args.output_dir.join(format!("pool_sweep_{}.json", pool_size));
+                let sweep_file = args
+                    .output_dir
+                    .join(format!("pool_sweep_{}.json", pool_size));
                 if let Ok(json_str) = serde_json::to_string_pretty(&sweep_res) {
                     let _ = std::fs::write(sweep_file, json_str);
                 }

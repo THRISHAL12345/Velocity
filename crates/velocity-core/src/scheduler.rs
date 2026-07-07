@@ -148,9 +148,10 @@ impl Scheduler {
             let notify_txs = completion_txs.remove(&step.step_id).unwrap_or_default();
             let wait_rxs = completion_rxs.remove(&step.step_id).unwrap_or_default();
 
-            let handle = tokio::spawn(async move {
-                Self::execute_step(pool, step, wait_rxs, notify_txs).await
-            });
+            let handle =
+                tokio::spawn(
+                    async move { Self::execute_step(pool, step, wait_rxs, notify_txs).await },
+                );
 
             join_handles.push(handle);
         }
@@ -158,12 +159,10 @@ impl Scheduler {
         // Collect results
         let mut step_results = HashMap::with_capacity(step_count);
         for handle in join_handles {
-            let result = handle
-                .await
-                .map_err(|e| SchedulerError::StepFailed {
-                    step: "unknown".to_string(),
-                    message: format!("task panicked: {}", e),
-                })??;
+            let result = handle.await.map_err(|e| SchedulerError::StepFailed {
+                step: "unknown".to_string(),
+                message: format!("task panicked: {}", e),
+            })??;
 
             step_results.insert(result.step_id.clone(), result);
         }
@@ -263,7 +262,9 @@ impl Scheduler {
             in_degree.entry(step.step_id.as_str()).or_insert(0);
             adj.entry(step.step_id.as_str()).or_default();
             for dep in &step.dependencies {
-                adj.entry(dep.as_str()).or_default().push(step.step_id.as_str());
+                adj.entry(dep.as_str())
+                    .or_default()
+                    .push(step.step_id.as_str());
                 *in_degree.entry(step.step_id.as_str()).or_insert(0) += 1;
             }
         }
@@ -522,7 +523,9 @@ mod tests {
         assert!(result.step_results["step_2"].payload.contains("WIDGET-001"));
         assert!(result.step_results["step_3"].payload.contains("unit_price"));
         assert!(result.step_results["step_4"].payload.contains("confirmed"));
-        assert!(result.step_results["step_5"].payload.contains("bytes_written"));
+        assert!(result.step_results["step_5"]
+            .payload
+            .contains("bytes_written"));
     }
 
     #[tokio::test]
@@ -569,12 +572,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_hft_tick_task() {
-        let pool = Arc::new(WorkerPool::new(WorkerPoolConfig::with_profile(4, "hft_tick")));
+        let pool = Arc::new(WorkerPool::new(WorkerPoolConfig::with_profile(
+            4, "hft_tick",
+        )));
         let scheduler = Scheduler::new(pool);
         let task = hft_tick_task("BTC-USD", "TRADER-01");
         let result = scheduler.execute_task(task).await.unwrap();
         assert_eq!(result.step_results.len(), 5);
         assert!(result.step_results["step_1"].payload.contains("BTC-USD"));
-        assert!(result.step_results["step_3"].payload.contains("alpha_score"));
+        assert!(result.step_results["step_3"]
+            .payload
+            .contains("alpha_score"));
     }
 }

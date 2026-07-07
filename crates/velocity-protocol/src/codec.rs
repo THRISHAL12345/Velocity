@@ -267,8 +267,8 @@ fn decode_header(bytes: &[u8]) -> Result<(MessageType, &[u8]), ProtocolError> {
     }
 
     // Parse message type
-    let msg_type = MessageType::from_u8(bytes[3])
-        .ok_or(ProtocolError::UnknownMessageType(bytes[3]))?;
+    let msg_type =
+        MessageType::from_u8(bytes[3]).ok_or(ProtocolError::UnknownMessageType(bytes[3]))?;
 
     // Parse and validate payload length
     let payload_len = u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
@@ -293,9 +293,11 @@ fn decode_header(bytes: &[u8]) -> Result<(MessageType, &[u8]), ProtocolError> {
 /// Reads a u8 from the payload at the given offset, advancing the offset.
 fn read_u8(payload: &[u8], offset: &mut usize) -> Result<u8, ProtocolError> {
     if *offset + 1 > payload.len() {
-        return Err(ProtocolError::MalformedPayload(
-            format!("expected 1 byte at offset {}, but payload is {} bytes", offset, payload.len()),
-        ));
+        return Err(ProtocolError::MalformedPayload(format!(
+            "expected 1 byte at offset {}, but payload is {} bytes",
+            offset,
+            payload.len()
+        )));
     }
     let val = payload[*offset];
     *offset += 1;
@@ -305,9 +307,11 @@ fn read_u8(payload: &[u8], offset: &mut usize) -> Result<u8, ProtocolError> {
 /// Reads a little-endian u32 from the payload at the given offset, advancing the offset.
 fn read_u32(payload: &[u8], offset: &mut usize) -> Result<u32, ProtocolError> {
     if *offset + 4 > payload.len() {
-        return Err(ProtocolError::MalformedPayload(
-            format!("expected 4 bytes at offset {}, but payload is {} bytes", offset, payload.len()),
-        ));
+        return Err(ProtocolError::MalformedPayload(format!(
+            "expected 4 bytes at offset {}, but payload is {} bytes",
+            offset,
+            payload.len()
+        )));
     }
     let val = u32::from_le_bytes([
         payload[*offset],
@@ -322,9 +326,11 @@ fn read_u32(payload: &[u8], offset: &mut usize) -> Result<u32, ProtocolError> {
 /// Reads a little-endian u64 from the payload at the given offset, advancing the offset.
 fn read_u64(payload: &[u8], offset: &mut usize) -> Result<u64, ProtocolError> {
     if *offset + 8 > payload.len() {
-        return Err(ProtocolError::MalformedPayload(
-            format!("expected 8 bytes at offset {}, but payload is {} bytes", offset, payload.len()),
-        ));
+        return Err(ProtocolError::MalformedPayload(format!(
+            "expected 8 bytes at offset {}, but payload is {} bytes",
+            offset,
+            payload.len()
+        )));
     }
     let val = u64::from_le_bytes([
         payload[*offset],
@@ -344,9 +350,12 @@ fn read_u64(payload: &[u8], offset: &mut usize) -> Result<u64, ProtocolError> {
 fn read_string(payload: &[u8], offset: &mut usize) -> Result<String, ProtocolError> {
     let len = read_u32(payload, offset)? as usize;
     if *offset + len > payload.len() {
-        return Err(ProtocolError::MalformedPayload(
-            format!("string of length {} at offset {} exceeds payload of {} bytes", len, offset, payload.len()),
-        ));
+        return Err(ProtocolError::MalformedPayload(format!(
+            "string of length {} at offset {} exceeds payload of {} bytes",
+            len,
+            offset,
+            payload.len()
+        )));
     }
     let s = std::str::from_utf8(&payload[*offset..*offset + len])
         .map_err(|e| ProtocolError::MalformedPayload(format!("invalid UTF-8: {}", e)))?;
@@ -483,7 +492,10 @@ mod tests {
         bytes[0] = 0xFF;
         bytes[1] = 0xFE;
         let result = decode_tool_call(&bytes);
-        assert!(matches!(result, Err(ProtocolError::InvalidMagic(0xFF, 0xFE))));
+        assert!(matches!(
+            result,
+            Err(ProtocolError::InvalidMagic(0xFF, 0xFE))
+        ));
     }
 
     #[test]
@@ -509,7 +521,10 @@ mod tests {
         });
         bytes[3] = 0xFF;
         let result = decode_tool_call(&bytes);
-        assert!(matches!(result, Err(ProtocolError::UnknownMessageType(0xFF))));
+        assert!(matches!(
+            result,
+            Err(ProtocolError::UnknownMessageType(0xFF))
+        ));
     }
 
     #[test]

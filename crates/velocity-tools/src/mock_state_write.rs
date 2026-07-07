@@ -49,7 +49,11 @@ impl MockStateWrite {
     }
 
     /// Executes a mock state write operation.
-    pub async fn execute(&self, operation: &str, args: &[(String, String)]) -> Result<String, String> {
+    pub async fn execute(
+        &self,
+        operation: &str,
+        args: &[(String, String)],
+    ) -> Result<String, String> {
         let delay = self.sample_delay_us();
         sleep(Duration::from_micros(delay)).await;
 
@@ -96,8 +100,18 @@ mod tests {
     async fn test_execution_latency() {
         let tool = MockStateWrite::new();
         let start = Instant::now();
-        let _ = tool.execute("log_audit", &[("trade_id".to_string(), "TRD-1".to_string())]).await.unwrap();
+        let _ = tool
+            .execute(
+                "log_audit",
+                &[("trade_id".to_string(), "TRD-1".to_string())],
+            )
+            .await
+            .unwrap();
         let elapsed_us = start.elapsed().as_micros() as u64;
-        assert!(elapsed_us < 50_000, "expected execution under 50ms, got {}us", elapsed_us);
+        assert!(
+            elapsed_us < 50_000,
+            "expected execution under 50ms, got {}us",
+            elapsed_us
+        );
     }
 }

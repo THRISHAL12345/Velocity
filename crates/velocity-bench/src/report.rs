@@ -51,8 +51,8 @@ pub fn compute_percentiles(values: &[u64]) -> PercentileStats {
         };
     }
 
-    let mut hist = Histogram::<u64>::new_with_bounds(1, 60_000_000, 3)
-        .expect("failed to create histogram");
+    let mut hist =
+        Histogram::<u64>::new_with_bounds(1, 60_000_000, 3).expect("failed to create histogram");
 
     for &v in values {
         let val = v.max(1); // hdrhistogram requires >= 1
@@ -97,20 +97,27 @@ pub fn generate_report(contender: &str, result: &BenchResult, config: &BenchConf
 }
 
 /// Writes the benchmark report as a JSON file.
-pub fn write_json_report(report: &BenchReport, output_dir: &Path, tag: Option<&str>) -> std::io::Result<()> {
+pub fn write_json_report(
+    report: &BenchReport,
+    output_dir: &Path,
+    tag: Option<&str>,
+) -> std::io::Result<()> {
     let filename = if let Some(t) = tag {
         format!("{}_{}_{}.json", report.contender, t, report.concurrency)
     } else {
         format!("{}_{}.json", report.contender, report.concurrency)
     };
     let path = output_dir.join(filename);
-    let json = serde_json::to_string_pretty(report)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    let json = serde_json::to_string_pretty(report).map_err(std::io::Error::other)?;
     std::fs::write(path, json)
 }
 
 /// Writes the benchmark report as a CSV file.
-pub fn write_csv_report(report: &BenchReport, output_dir: &Path, tag: Option<&str>) -> std::io::Result<()> {
+pub fn write_csv_report(
+    report: &BenchReport,
+    output_dir: &Path,
+    tag: Option<&str>,
+) -> std::io::Result<()> {
     let filename = if let Some(t) = tag {
         format!("{}_{}_{}.csv", report.contender, t, report.concurrency)
     } else {

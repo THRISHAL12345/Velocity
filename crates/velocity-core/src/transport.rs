@@ -5,8 +5,8 @@
 
 use std::time::Instant;
 use velocity_protocol::{
-    ToolCallRequest, ToolCallResponse,
-    encode_tool_call, decode_tool_call, encode_response, decode_response,
+    decode_response, decode_tool_call, encode_response, encode_tool_call, ToolCallRequest,
+    ToolCallResponse,
 };
 
 /// Timestamps captured at each stage of a tool call for instrumentation.

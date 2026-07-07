@@ -65,7 +65,11 @@ impl MockHttp {
     ///
     /// Simulates API latency with a uniformly distributed random delay,
     /// then returns a fixed-schema response.
-    pub async fn execute(&self, operation: &str, args: &[(String, String)]) -> Result<String, String> {
+    pub async fn execute(
+        &self,
+        operation: &str,
+        args: &[(String, String)],
+    ) -> Result<String, String> {
         // Simulate jittered API latency
         let delay = {
             let mut rng = rand::thread_rng();

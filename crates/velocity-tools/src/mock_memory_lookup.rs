@@ -49,7 +49,11 @@ impl MockMemoryLookup {
     }
 
     /// Executes a mock memory lookup operation.
-    pub async fn execute(&self, operation: &str, args: &[(String, String)]) -> Result<String, String> {
+    pub async fn execute(
+        &self,
+        operation: &str,
+        args: &[(String, String)],
+    ) -> Result<String, String> {
         let delay = self.sample_delay_us();
         sleep(Duration::from_micros(delay)).await;
 
@@ -110,16 +114,32 @@ mod tests {
     async fn test_execution_latency() {
         let tool = MockMemoryLookup::new();
         let start = Instant::now();
-        let _ = tool.execute("lookup_orderbook", &[("symbol".to_string(), "BTC-USD".to_string())]).await.unwrap();
+        let _ = tool
+            .execute(
+                "lookup_orderbook",
+                &[("symbol".to_string(), "BTC-USD".to_string())],
+            )
+            .await
+            .unwrap();
         let elapsed_us = start.elapsed().as_micros() as u64;
         // Allow buffer for OS scheduler / Windows 15.6ms timer resolution in test environments
-        assert!(elapsed_us < 50_000, "expected execution under 50ms, got {}us", elapsed_us);
+        assert!(
+            elapsed_us < 50_000,
+            "expected execution under 50ms, got {}us",
+            elapsed_us
+        );
     }
 
     #[tokio::test]
     async fn test_operations() {
         let tool = MockMemoryLookup::new();
-        let res = tool.execute("check_risk_limit", &[("account_id".to_string(), "ACC-1".to_string())]).await.unwrap();
+        let res = tool
+            .execute(
+                "check_risk_limit",
+                &[("account_id".to_string(), "ACC-1".to_string())],
+            )
+            .await
+            .unwrap();
         assert!(res.contains("risk_ok"));
         let res2 = tool.execute("write_trade_record", &[]).await.unwrap();
         assert!(res2.contains("recorded"));

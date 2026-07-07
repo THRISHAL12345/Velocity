@@ -3,14 +3,16 @@
 //! Runs the benchmark across a configurable list of pool sizes at a fixed concurrency level (default 1000).
 //! Measures p50/p95/p99 task latency, average queue wait time, and pool construction time.
 
+#![allow(dead_code)]
+
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::task::JoinHandle;
 
+use crate::report::compute_percentiles;
 use velocity_core::scheduler::{Scheduler, TaskResult, ToolCallIntent};
 use velocity_core::worker_pool::{WorkerPool, WorkerPoolConfig};
-use crate::report::compute_percentiles;
 
 /// Configuration for a pool size sweep experiment.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -71,11 +73,15 @@ pub async fn run_pool_sweep(
         // Measured phase
         let mut all_task_times: Vec<u64> = Vec::new();
         for _ in 0..config.measured_iterations {
-            let mut handles: Vec<JoinHandle<Result<TaskResult, velocity_core::scheduler::SchedulerError>>> = Vec::with_capacity(tasks.len());
+            let mut handles: Vec<
+                JoinHandle<Result<TaskResult, velocity_core::scheduler::SchedulerError>>,
+            > = Vec::with_capacity(tasks.len());
             for task in &tasks {
                 let s = Arc::clone(&scheduler);
                 let task_clone = task.clone();
-                handles.push(tokio::spawn(async move { s.execute_task(task_clone).await }));
+                handles.push(tokio::spawn(
+                    async move { s.execute_task(task_clone).await },
+                ));
             }
 
             for handle in handles {
@@ -90,7 +96,14 @@ pub async fn run_pool_sweep(
         // Compute average queue wait time across all active tools
         let mut total_wait_us = 0u64;
         let mut active_pools = 0u64;
-        for tool in &["mock_db", "mock_http", "mock_file", "mock_memory_lookup", "mock_calc_engine", "mock_state_write"] {
+        for tool in &[
+            "mock_db",
+            "mock_http",
+            "mock_file",
+            "mock_memory_lookup",
+            "mock_calc_engine",
+            "mock_state_write",
+        ] {
             if let Some(stats) = pool.stats(tool) {
                 if stats.total > 0 {
                     total_wait_us += stats.avg_wait_us;
@@ -98,11 +111,7 @@ pub async fn run_pool_sweep(
                 }
             }
         }
-        let avg_queue_wait_us = if active_pools > 0 {
-            total_wait_us / active_pools
-        } else {
-            0
-        };
+        let avg_queue_wait_us = total_wait_us.checked_div(active_pools).unwrap_or(0);
 
         results.push(PoolSweepResult {
             pool_size,
@@ -150,6 +159,10 @@ mod tests {
         assert_eq!(r.pool_size, 4);
         assert!(r.p50_us > 0);
         // Because 20 tasks compete for 4 workers sleeping 1-3ms, queue wait must be > 0
-        assert!(r.avg_queue_wait_us > 0, "expected avg_queue_wait_us > 0, got {}", r.avg_queue_wait_us);
+        assert!(
+            r.avg_queue_wait_us > 0,
+            "expected avg_queue_wait_us > 0, got {}",
+            r.avg_queue_wait_us
+        );
     }
 }

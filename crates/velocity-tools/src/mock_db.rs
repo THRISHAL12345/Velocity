@@ -68,7 +68,11 @@ impl MockDb {
     /// Simulates query latency with a uniformly distributed random delay
     /// between `min_delay_us` and `max_delay_us`, then returns a fixed-schema
     /// response based on the operation name.
-    pub async fn execute(&self, operation: &str, args: &[(String, String)]) -> Result<String, String> {
+    pub async fn execute(
+        &self,
+        operation: &str,
+        args: &[(String, String)],
+    ) -> Result<String, String> {
         // Simulate jittered query latency
         let delay = {
             let mut rng = rand::thread_rng();

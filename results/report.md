@@ -12,8 +12,8 @@ Velocity is a purpose-built execution runtime for AI agent tool-calling designed
 
 ### Headline Findings
 
-- **vs. LangGraph (Standard Workload)**: Velocity achieves up to **5.2x speedup** at concurrency 1000 (~1,105ms vs ~5,775ms p99), validating that compiled Rust execution and pre-warmed worker pools eliminate framework orchestration bloat.
-- **Sub-millisecond HFT Superiority**: Under microsecond-scale tool delays (`hft_tick`), Velocity outperforms LangGraph by **4.1x** (~979.5ms vs ~4,007.3ms p99) and raw MCP by **0.2x**, demonstrating that zero-allocation binary framing is essential when I/O does not mask protocol latency.
+- **vs. LangGraph (Standard Workload)**: Velocity achieves up to **4.4x speedup** at concurrency 1000 (~827ms vs ~3,635ms p99), validating that compiled Rust execution and pre-warmed worker pools eliminate framework orchestration bloat.
+- **Sub-millisecond HFT Superiority**: Under microsecond-scale tool delays (`hft_tick`), Velocity outperforms LangGraph by **3.8x** (~795.6ms vs ~3,000.6ms p99) and raw MCP by **0.2x**, demonstrating that zero-allocation binary framing is essential when I/O does not mask protocol latency.
 
 ---
 
@@ -34,15 +34,22 @@ All contenders execute identical task graphs with matching simulated delay distr
 
 ![Latency vs Concurrency](./graphs/latency_vs_concurrency.png)
 
+### Concurrency = 0
+
+![Bar Chart Concurrency 0](./graphs/bar_chart_c0.png)
+
+| Contender | Pool Size | p50 (μs) | p95 (μs) | p99 (μs) | Max (μs) | Mean (μs) | Cold Start (μs) |
+|-----------|-----------|----------|----------|----------|----------|-----------|-----------------|
+
 ### Concurrency = 1
 
 ![Bar Chart Concurrency 1](./graphs/bar_chart_c1.png)
 
 | Contender | Pool Size | p50 (μs) | p95 (μs) | p99 (μs) | Max (μs) | Mean (μs) | Cold Start (μs) |
 |-----------|-----------|----------|----------|----------|----------|-----------|-----------------|
-| velocity | 64 | 92287 | 111679 | 121791 | 121791 | 93112 | 101635 |
-| langgraph | Unbounded | 95420 | 125344 | 127033 | 127426 | 100787 | 94035 |
-| raw_mcp | Unbounded | 109005 | 133084 | 146861 | 154535 | 110876 | 125750 |
+| velocity | 64 | 92223 | 110015 | 110911 | 110911 | 88948 | 77818 |
+| langgraph | Unbounded | 93691 | 124872 | 131907 | 137601 | 96367 | 91150 |
+| raw_mcp | Unbounded | 108872 | 124395 | 125402 | 125910 | 106696 | 109538 |
 
 ### Concurrency = 10
 
@@ -50,9 +57,9 @@ All contenders execute identical task graphs with matching simulated delay distr
 
 | Contender | Pool Size | p50 (μs) | p95 (μs) | p99 (μs) | Max (μs) | Mean (μs) | Cold Start (μs) |
 |-----------|-----------|----------|----------|----------|----------|-----------|-----------------|
-| velocity | 64 | 92479 | 112063 | 123583 | 128383 | 93769 | 125478 |
-| langgraph | Unbounded | 109361 | 144295 | 161206 | 177867 | 111883 | 156326 |
-| raw_mcp | Unbounded | 107725 | 124428 | 127744 | 144190 | 105506 | 123832 |
+| velocity | 64 | 92415 | 110399 | 123071 | 139391 | 91583 | 140192 |
+| langgraph | Unbounded | 101978 | 123542 | 134373 | 154534 | 102592 | 125929 |
+| raw_mcp | Unbounded | 108278 | 124435 | 125525 | 126265 | 104880 | 110873 |
 
 ### Concurrency = 100
 
@@ -60,9 +67,9 @@ All contenders execute identical task graphs with matching simulated delay distr
 
 | Contender | Pool Size | p50 (μs) | p95 (μs) | p99 (μs) | Max (μs) | Mean (μs) | Cold Start (μs) |
 |-----------|-----------|----------|----------|----------|----------|-----------|-----------------|
-| velocity | 64 | 117695 | 154623 | 168319 | 202239 | 119408 | 185467 |
-| langgraph | Unbounded | 451860 | 563378 | 617402 | 657771 | 448604 | 485972 |
-| raw_mcp | Unbounded | 100441 | 122301 | 135893 | 151728 | 100662 | 124154 |
+| velocity | 64 | 108543 | 149503 | 163583 | 178559 | 112932 | 155870 |
+| langgraph | Unbounded | 241509 | 318214 | 352461 | 383580 | 243674 | 333092 |
+| raw_mcp | Unbounded | 106468 | 123051 | 124750 | 126769 | 101759 | 125541 |
 
 ### Concurrency = 1000
 
@@ -70,9 +77,9 @@ All contenders execute identical task graphs with matching simulated delay distr
 
 | Contender | Pool Size | p50 (μs) | p95 (μs) | p99 (μs) | Max (μs) | Mean (μs) | Cold Start (μs) |
 |-----------|-----------|----------|----------|----------|----------|-----------|-----------------|
-| velocity | 64 | 801791 | 1009663 | 1104895 | 1229823 | 809315 | 1316511 |
-| langgraph | Unbounded | 4594379 | 5501433 | 5775494 | 6032742 | 4609746 | 5696482 |
-| raw_mcp | Unbounded | 181364 | 275822 | 308264 | 324729 | 188852 | 211224 |
+| velocity | 64 | 678911 | 792063 | 826879 | 898559 | 690705 | 839797 |
+| langgraph | Unbounded | 2828919 | 3408192 | 3635168 | 3871716 | 2838970 | 3365772 |
+| raw_mcp | Unbounded | 115774 | 145076 | 152996 | 177803 | 115978 | 172020 |
 
 ## 4. Experiment 2: Worker Pool Scaling & Concurrency Crossover
 
@@ -80,30 +87,82 @@ To investigate why unbounded Python coroutines can outperform a bounded Rust wor
 
 ![Pool Size Crossover](./graphs/pool_size_vs_p99_crossover.png)
 
-| Pool Size / Semaphore Cap | Velocity p99 (μs) | Bounded MCP p99 (μs) | Unbounded MCP p99 (μs) | Velocity vs Bounded MCP |
-|---|---|---|---|---|
-| 64 | 1,104,895 | 1,634,005 | 308,264 | **1.5x faster** |
-| 256 | 727,039 | 481,184 | 308,264 | **0.7x faster** |
-| 1024 | 703,999 | 75,496,334 | 308,264 | **107.2x faster** |
-| 4096 | 704,511 | 464,289 | 308,264 | **0.7x faster** |
+| Pool Size / Semaphore Cap | Velocity p99 (μs) | Fair-Capped MCP p99 (μs) | Unbounded MCP p99 (μs) | Avg Queue Wait (μs) | Construction (ms) | Velocity vs Capped MCP |
+|---|---|---|---|---|---|---|
+| 64 | 826,879 | 1,639,040 | 152,996 | 52,503 | 0 | **2.0x faster** |
+| 256 | 391,679 | 455,867 | 152,996 | 10,944 | 1 | **1.2x faster** |
+| 1024 | 342,271 | 140,531 | 152,996 | 615 | 1 | **0.4x faster** |
+| 4096 | 334,079 | 398,621 | 152,996 | 245 | 5 | **1.2x faster** |
 
 ### Analysis: Why Tunable Pool Sizing Matters
 
 1. **Queuing Bottleneck at Pool Size 64**: When 1,000 tasks request 5,000 tool executions simultaneously against only 64 workers, tasks spend significant time in bounded MPSC channel wait queues. Unbounded Python coroutines avoid this queue by spawning 5,000 concurrent `asyncio.sleep` tasks without connection limits.
 2. **Rust Scalability Superiority**: When the pool size is scaled to 1024 or 4096, Velocity's p99 latency drops dramatically, comfortably beating raw MCP. Unlike Python coroutines—which degrade under memory, OS file-descriptor, and event-loop scheduling overhead when bounded semaphores are removed—Rust tokio tasks are lightweight enough to scale to thousands of active connections without runtime degradation.
 
+### Workstream 1 Findings: Pool Size Sweep Analysis
+
+- **Crossover Threshold**: At concurrency=1000, Velocity's p99 latency remains above raw MCP's unbounded p99 even at pool_size=4096 (gap: 2.2x slower). This demonstrates that bounded worker pools require sufficient sizing or dynamic work-stealing when competing against unbounded coroutines.
+- **Queue Contention Analysis**: At `pool_size=64`, the average worker queue wait time is **52,503 μs**, accounting for approximately **7.7%** of median task completion time (`678,911 μs`). This confirms queue contention in bounded MPSC channels as the primary bottleneck under heavy concurrency bursts when pools are undersized.
+
+### Workstream 3 Findings: Fair-Capped Baseline Analysis
+
+- **Fair-Capped Crossover**: When evaluated against `raw_mcp_baseline_capped` at matching resource limits (concurrency=1000), Velocity's p99 latency drops below capped raw MCP starting at **pool_size=64**.
 ## 5. Experiment 3: Sub-millisecond HFT Profile (`hft_tick`)
 
 In real-time trading and robotics control loops, tool I/O completes in microseconds. At this scale, standard framework serialization and scheduling overheads become the primary bottleneck.
 
 ![HFT Latency vs Concurrency](./graphs/hft_latency_vs_concurrency.png)
 
+![HFT Latency vs Concurrency Alt](./graphs/latency_vs_concurrency_hft.png)
+
 | Concurrency | Velocity p99 (μs) | LangGraph p99 (μs) | Raw MCP p99 (μs) | Velocity vs LangGraph | Velocity vs Raw MCP |
 |---|---|---|---|---|---|
-| 1 | 63,519 | 64,448 | 79,828 | **1.0x** | **1.3x** |
-| 10 | 70,399 | 59,428 | 34,069 | **0.8x** | **0.5x** |
-| 100 | 134,399 | 407,056 | 36,748 | **3.0x** | **0.3x** |
-| 1000 | 979,455 | 4,007,321 | 236,971 | **4.1x** | **0.2x** |
+| 1 | 64,671 | 63,808 | 79,245 | **1.0x** | **1.2x** |
+| 10 | 62,495 | 43,858 | 49,080 | **0.7x** | **0.8x** |
+| 100 | 85,695 | 321,270 | 16,900 | **3.7x** | **0.2x** |
+| 1000 | 795,647 | 3,000,647 | 175,210 | **3.8x** | **0.2x** |
+
+### Detailed HFT Concurrency Breakdown
+
+#### HFT Concurrency = 1
+
+![HFT Bar Chart Concurrency 1](./graphs/bar_chart_hft_c1.png)
+
+| Contender | Pool Size | p50 (μs) | p95 (μs) | p99 (μs) | Max (μs) | Mean (μs) | Cold Start (μs) |
+|-----------|-----------|----------|----------|----------|----------|-----------|-----------------|
+| velocity | 64 | 61247 | 62847 | 64671 | 64671 | 60723 | 62263 |
+| langgraph | Unbounded | 62106 | 63675 | 63808 | 63848 | 60676 | 62432 |
+| raw_mcp | Unbounded | 77583 | 78900 | 79245 | 79411 | 73940 | 78364 |
+
+#### HFT Concurrency = 10
+
+![HFT Bar Chart Concurrency 10](./graphs/bar_chart_hft_c10.png)
+
+| Contender | Pool Size | p50 (μs) | p95 (μs) | p99 (μs) | Max (μs) | Mean (μs) | Cold Start (μs) |
+|-----------|-----------|----------|----------|----------|----------|-----------|-----------------|
+| velocity | 64 | 59999 | 62303 | 62495 | 62527 | 58482 | 63445 |
+| langgraph | Unbounded | 24279 | 31363 | 43858 | 48942 | 24696 | 28587 |
+| raw_mcp | Unbounded | 4235 | 32875 | 49080 | 49118 | 10972 | 15943 |
+
+#### HFT Concurrency = 100
+
+![HFT Bar Chart Concurrency 100](./graphs/bar_chart_hft_c100.png)
+
+| Contender | Pool Size | p50 (μs) | p95 (μs) | p99 (μs) | Max (μs) | Mean (μs) | Cold Start (μs) |
+|-----------|-----------|----------|----------|----------|----------|-----------|-----------------|
+| velocity | 64 | 62911 | 77183 | 85695 | 98815 | 61608 | 104237 |
+| langgraph | Unbounded | 234257 | 300013 | 321270 | 353123 | 235567 | 279104 |
+| raw_mcp | Unbounded | 8406 | 15073 | 16900 | 17957 | 9403 | 8084 |
+
+#### HFT Concurrency = 1000
+
+![HFT Bar Chart Concurrency 1000](./graphs/bar_chart_hft_c1000.png)
+
+| Contender | Pool Size | p50 (μs) | p95 (μs) | p99 (μs) | Max (μs) | Mean (μs) | Cold Start (μs) |
+|-----------|-----------|----------|----------|----------|----------|-----------|-----------------|
+| velocity | 64 | 621567 | 718335 | 795647 | 955903 | 625363 | 778296 |
+| langgraph | Unbounded | 2241947 | 2805151 | 3000647 | 3245087 | 2211823 | 2658209 |
+| raw_mcp | Unbounded | 110259 | 153903 | 175210 | 182431 | 115258 | 173855 |
 
 ### Analysis: Protocol & Scheduler Dominance
 

@@ -65,7 +65,11 @@ impl MockFile {
     ///
     /// Simulates file I/O latency with a uniformly distributed random delay,
     /// then returns a fixed-schema response.
-    pub async fn execute(&self, operation: &str, args: &[(String, String)]) -> Result<String, String> {
+    pub async fn execute(
+        &self,
+        operation: &str,
+        args: &[(String, String)],
+    ) -> Result<String, String> {
         // Simulate jittered file I/O latency
         let delay = {
             let mut rng = rand::thread_rng();
@@ -96,9 +100,7 @@ impl MockFile {
                     trade_id
                 ))
             }
-            "read" => {
-                Ok(r#"{"content":"file contents here","bytes_read":128}"#.to_string())
-            }
+            "read" => Ok(r#"{"content":"file contents here","bytes_read":128}"#.to_string()),
             _ => Err(format!("unknown file operation: {}", operation)),
         }
     }

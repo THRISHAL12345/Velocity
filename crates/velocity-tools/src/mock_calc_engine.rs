@@ -49,7 +49,11 @@ impl MockCalcEngine {
     }
 
     /// Executes a mock calculation operation.
-    pub async fn execute(&self, operation: &str, args: &[(String, String)]) -> Result<String, String> {
+    pub async fn execute(
+        &self,
+        operation: &str,
+        args: &[(String, String)],
+    ) -> Result<String, String> {
         let delay = self.sample_delay_us();
         sleep(Duration::from_micros(delay)).await;
 
@@ -96,8 +100,18 @@ mod tests {
     async fn test_execution_latency() {
         let tool = MockCalcEngine::new();
         let start = Instant::now();
-        let _ = tool.execute("calculate_alpha", &[("symbol".to_string(), "BTC-USD".to_string())]).await.unwrap();
+        let _ = tool
+            .execute(
+                "calculate_alpha",
+                &[("symbol".to_string(), "BTC-USD".to_string())],
+            )
+            .await
+            .unwrap();
         let elapsed_us = start.elapsed().as_micros() as u64;
-        assert!(elapsed_us < 50_000, "expected execution under 50ms, got {}us", elapsed_us);
+        assert!(
+            elapsed_us < 50_000,
+            "expected execution under 50ms, got {}us",
+            elapsed_us
+        );
     }
 }

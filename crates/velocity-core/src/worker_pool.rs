@@ -342,28 +342,12 @@ impl WorkerPool {
     /// known pool sizes.
     pub fn stats(&self, tool_name: &str) -> Option<PoolStats> {
         let total = *self.pool_sizes.get(tool_name)?;
-        let active = self
-            .active_counts
-            .get(tool_name)?
-            .load(Ordering::Relaxed) as usize;
+        let active = self.active_counts.get(tool_name)?.load(Ordering::Relaxed) as usize;
         let idle = total.saturating_sub(active);
-        let queued = self
-            .queued_counts
-            .get(tool_name)?
-            .load(Ordering::Relaxed) as usize;
-        let wait_ns = self
-            .total_wait_ns
-            .get(tool_name)?
-            .load(Ordering::Relaxed);
-        let count = self
-            .acquire_counts
-            .get(tool_name)?
-            .load(Ordering::Relaxed);
-        let avg_wait_us = if count > 0 {
-            (wait_ns / count) / 1000
-        } else {
-            0
-        };
+        let queued = self.queued_counts.get(tool_name)?.load(Ordering::Relaxed) as usize;
+        let wait_ns = self.total_wait_ns.get(tool_name)?.load(Ordering::Relaxed);
+        let count = self.acquire_counts.get(tool_name)?.load(Ordering::Relaxed);
+        let avg_wait_us = wait_ns.checked_div(count).unwrap_or(0) / 1000;
 
         Some(PoolStats {
             active,
@@ -520,7 +504,11 @@ mod tests {
 
         let stats = pool.stats("mock_file").unwrap();
         // At least 10ms (10,000us) average wait time across the 2 acquires
-        assert!(stats.avg_wait_us >= 5_000, "expected avg_wait_us >= 5000, got {}", stats.avg_wait_us);
+        assert!(
+            stats.avg_wait_us >= 5_000,
+            "expected avg_wait_us >= 5000, got {}",
+            stats.avg_wait_us
+        );
     }
 
     #[tokio::test]

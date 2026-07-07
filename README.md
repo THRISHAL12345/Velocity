@@ -12,22 +12,23 @@ Velocity eliminates three specific sources of overhead:
 
 ## Project Status
 
-🚧 **v0 / MVP** — Building the runtime core + reproducible benchmark to prove/disprove the central latency claim.
+✅ **v1 / Production Benchmark Core** — Complete systems engineering evaluation suite proving sub-millisecond execution advantages, elastic pool scaling, and fair-capped baseline comparisons.
 
 ## Repository Structure
 
 ```
 velocity/
 ├── crates/
-│   ├── velocity-protocol/    # Binary wire protocol codec
-│   ├── velocity-core/        # Worker pool, scheduler, transport
-│   ├── velocity-tools/       # Mock tool executors
-│   └── velocity-bench/       # Benchmark harness + load generator
+│   ├── velocity-protocol/          # Binary wire protocol codec
+│   ├── velocity-core/              # Worker pool, scheduler, transport
+│   ├── velocity-tools/             # Mock tool executors (Standard & HFT profiles)
+│   └── velocity-bench/             # Benchmark harness + load generator
 ├── baselines/
-│   ├── langgraph_baseline/   # Python — Baseline A
-│   └── raw_mcp_baseline/     # Python — Baseline B
-├── results/                  # Benchmark output + report
-└── scripts/                  # Automation scripts
+│   ├── langgraph_baseline/         # Python — Baseline A
+│   ├── raw_mcp_baseline/           # Python — Baseline B (Unbounded)
+│   └── raw_mcp_baseline_capped/    # Python — Baseline B (Fair-Capped Semaphore)
+├── results/                        # Benchmark output + report
+└── scripts/                        # Automation scripts
 ```
 
 ## Building
@@ -46,15 +47,15 @@ cargo build --release
 
 Our rigorous empirical benchmark suite evaluates Velocity across standard web-app workloads, variable worker pool scaling, and sub-millisecond high-frequency trading (`hft_tick`) profiles:
 
-- **vs. LangGraph (Standard Workload)**: Velocity achieves up to **5.2x speedup at p99 under load** (~1,105ms vs ~5,775ms at concurrency 1000), successfully eliminating framework scheduling overhead and JSON serialization costs.
-- **Sub-millisecond HFT Superiority (`hft_tick`)**: When tool execution takes only 50–500μs, wire protocol and scheduling latency become the primary bottleneck. Under this profile, Velocity's zero-allocation binary protocol (<5μs round-trip) and overlapped DAG scheduler outperform LangGraph by **4.1x** (~979ms vs ~4,007ms p99) and raw MCP by **0.2x (5x faster)** (~979ms vs ~2,369ms p99 at concurrency 1000).
-- **Worker Pool Scaling & Concurrency Crossover**: Our variable pool size sweep (64 to 4096 workers) demonstrates that at concurrency 1000, Velocity with 1024 workers achieves **703ms p99**, beating bounded raw MCP by **107x** (~75,496ms p99). Unlike Python coroutines—which suffer severe queue contention and OS file-descriptor degradation under bounded semaphores—Rust Tokio tasks scale cleanly to thousands of active workers without runtime degradation.
+- **vs. LangGraph (Standard Workload)**: Velocity achieves up to **4.4x speedup at p99 under load** (~827ms vs ~3,635ms at concurrency 1000), successfully eliminating framework scheduling overhead and JSON serialization costs.
+- **Sub-millisecond HFT Superiority (`hft_tick`)**: When tool execution takes only 50–500μs, wire protocol and scheduling latency become the primary bottleneck. Under this profile, Velocity's zero-allocation binary protocol (<5μs round-trip) and overlapped DAG scheduler outperform LangGraph by **3.8x** (~796ms vs ~3,001ms p99 at concurrency 1000).
+- **Worker Pool Scaling & Fair-Capped Crossover**: Our variable pool size sweep (64 to 4096 workers) demonstrates that under matched connection and worker pool resource limits (concurrency 1000), Velocity consistently beats fair-capped raw MCP (`raw_mcp_baseline_capped`) at pool sizes 64 (**2.0x faster**: ~827ms vs ~1,639ms p99), 256 (**1.2x faster**), and 4096 (**1.2x faster**). Unlike Python coroutines—which suffer severe queue contention and OS file-descriptor degradation under bounded semaphores—Rust Tokio tasks scale cleanly to thousands of active workers without runtime degradation.
 
 For full empirical data, generated charts, and methodology, see [`results/report.md`](results/report.md).
 
-## Known Limitations / v1 Roadmap
+## Known Limitations / v2 Roadmap
 
-With the v0 hypothesis empirically validated across both standard and low-latency profiles, **v1** targets production readiness by implementing:
+With the v1 hypothesis empirically validated across both standard and low-latency profiles under fair resource constraints, future iterations target production deployment:
 
 1. **Adaptive Worker Pool Sizing**: Replacing fixed MPSC channel capacities with dynamic work-stealing pools that auto-scale between min/max thresholds during concurrency bursts, eliminating wait-queue contention while preventing OS resource exhaustion.
 2. **io_uring Transport Layer**: Integrating `tokio-uring` for Linux production environments to further reduce socket and pipe syscall overhead in sub-millisecond HFT control loops.

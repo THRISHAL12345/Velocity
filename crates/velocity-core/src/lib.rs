@@ -8,6 +8,11 @@ pub mod scheduler;
 pub mod transport;
 pub mod worker_pool;
 
-pub use scheduler::{hft_tick_task, process_order_task, Scheduler, SchedulerError, StepResult, TaskResult, ToolCallIntent};
+pub use scheduler::{
+    hft_tick_task, process_order_task, Scheduler, SchedulerError, StepResult, TaskResult,
+    ToolCallIntent,
+};
 pub use transport::CallTrace;
-pub use worker_pool::{PoolError, PoolStats, ToolExecutor, WorkerHandle, WorkerPool, WorkerPoolConfig};
+pub use worker_pool::{
+    PoolError, PoolStats, ToolExecutor, WorkerHandle, WorkerPool, WorkerPoolConfig,
+};

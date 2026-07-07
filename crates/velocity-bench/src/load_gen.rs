@@ -91,7 +91,9 @@ pub async fn run_velocity_benchmark(
         for task in &tasks {
             let s = Arc::clone(&scheduler);
             let task_clone = task.clone();
-            handles.push(tokio::spawn(async move { s.execute_task(task_clone).await }));
+            handles.push(tokio::spawn(
+                async move { s.execute_task(task_clone).await },
+            ));
         }
 
         // Collect results
@@ -116,10 +118,7 @@ pub async fn run_velocity_benchmark(
             all_task_times.push(result.total_time_us);
 
             for (step_id, step_result) in &result.step_results {
-                let step_time = step_result
-                    .trace
-                    .total_us()
-                    .unwrap_or(0);
+                let step_time = step_result.trace.total_us().unwrap_or(0);
                 all_step_times
                     .entry(step_id.clone())
                     .or_default()
@@ -138,7 +137,14 @@ pub async fn run_velocity_benchmark(
 
     let mut total_wait_us = 0u64;
     let mut active_pools = 0u64;
-    for tool in &["mock_db", "mock_http", "mock_file", "mock_memory_lookup", "mock_calc_engine", "mock_state_write"] {
+    for tool in &[
+        "mock_db",
+        "mock_http",
+        "mock_file",
+        "mock_memory_lookup",
+        "mock_calc_engine",
+        "mock_state_write",
+    ] {
         if let Some(stats) = pool.stats(tool) {
             if stats.total > 0 {
                 total_wait_us += stats.avg_wait_us;
@@ -146,11 +152,7 @@ pub async fn run_velocity_benchmark(
             }
         }
     }
-    let avg_queue_wait_us = if active_pools > 0 {
-        total_wait_us / active_pools
-    } else {
-        0
-    };
+    let avg_queue_wait_us = total_wait_us.checked_div(active_pools).unwrap_or(0);
 
     BenchResult {
         concurrency: config.concurrency,
