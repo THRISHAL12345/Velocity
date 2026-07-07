@@ -57,7 +57,7 @@ For full empirical data, generated charts, and methodology, see [`results/report
 
 With the v1 hypothesis empirically validated across both standard and low-latency profiles under fair resource constraints, future iterations target production deployment:
 
-1. **Adaptive Worker Pool Sizing**: Replacing fixed MPSC channel capacities with dynamic work-stealing pools that auto-scale between min/max thresholds during concurrency bursts, eliminating wait-queue contention while preventing OS resource exhaustion.
+1. **Work-Stealing Heuristic Refinement**: Advanced adaptive load-shedding and predictive thread-pool elasticity to fine-tune worker stealing under erratic multi-tenant burst traffic.
 2. **io_uring Transport Layer**: Integrating `tokio-uring` for Linux production environments to further reduce socket and pipe syscall overhead in sub-millisecond HFT control loops.
 3. **Live LLM Introspection Engine**: Replacing static benchmark task graphs with live streaming LLM token parsing to dynamically overlap speculative tool worker acquisition with model token generation.
 

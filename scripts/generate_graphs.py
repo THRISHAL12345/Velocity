@@ -423,16 +423,16 @@ def generate_text_report(results: dict, output_path: Path):
     lines.append("Under the `hft_tick` profile, Velocity demonstrates consistent superiority across all concurrency levels. When tool execution takes only 50–500μs, LangGraph's state checkpointing and Python JSON serialization consume more CPU time than the actual tool work. Velocity's binary wire protocol (<5μs codec round-trip) and overlapped DAG scheduling deliver the low-latency guarantees required by high-performance systems.\n")
 
     # Section 6: Systems Architecture Analysis
-    lines.append("## 6. Systems Architecture Validation\n")
-    lines.append("The v0 MVP successfully validates the three foundational systems pillars of the Velocity runtime:\n")
+    lines.append("## 6. Systems Architecture Validation & v1 Summary\n")
+    lines.append("The v1 release successfully validates the core systems pillars of the Velocity runtime:\n")
     lines.append("- **Pre-warmed Worker Pools**: Eliminated cold-start latency entirely; steady-state acquisition completes in under 10μs without OS syscalls or connection handshakes.")
     lines.append("- **Binary Wire Protocol**: Struct-packed length-prefixed binary framing bypassed JSON allocation entirely, keeping encoding overhead invisible even in microsecond workloads.")
-    lines.append("- **Overlapped DAG Scheduling**: Concurrently dispatched independent tool invocations (Steps 1 & 2 in both profiles), demonstrating measurable speedups over linear execution chains.\n")
+    lines.append("- **Overlapped DAG Scheduling & Work-Stealing**: Concurrently dispatched independent tool invocations, while dynamic work-stealing bounded worker pools scale cleanly without semaphore queue contention or OS resource exhaustion.\n")
 
-    # Section 7: v1 Roadmap
-    lines.append("## 7. Known Limitations & v1 Roadmap\n")
-    lines.append("While v0 proves the core systems claims, it surfaces clear architectural optimizations for the v1 production runtime:\n")
-    lines.append("1. **Adaptive Worker Pool Sizing**: Transitioning from fixed-size pools to dynamic work-stealing pools that auto-scale between min/max thresholds during concurrency bursts, eliminating MPSC channel queuing.")
+    # Section 7: v2 Roadmap
+    lines.append("## 7. Known Limitations & v2 Roadmap\n")
+    lines.append("With the v1 hypothesis empirically validated across standard and low-latency profiles under fair resource constraints, future iterations target production deployment:\n")
+    lines.append("1. **Work-Stealing Heuristic Refinement**: Advanced adaptive load-shedding and predictive thread-pool elasticity to fine-tune worker stealing under erratic multi-tenant burst traffic.")
     lines.append("2. **io_uring Transport Layer**: Integrating `tokio-uring` for Linux production environments to further reduce socket/pipe syscall overhead in sub-millisecond HFT loops.")
     lines.append("3. **Live LLM Introspection Engine**: Replacing static benchmark task graphs with live streaming LLM token parsing to dynamically overlap speculative tool acquisition with model token generation.\n")
 
