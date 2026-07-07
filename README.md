@@ -49,7 +49,7 @@ Our rigorous empirical benchmark suite evaluates Velocity across standard web-ap
 
 - **vs. LangGraph (Standard Workload)**: Velocity achieves up to **4.4x speedup at p99 under load** (~827ms vs ~3,635ms at concurrency 1000), successfully eliminating framework scheduling overhead and JSON serialization costs.
 - **Sub-millisecond HFT Superiority (`hft_tick`)**: When tool execution takes only 50–500μs, wire protocol and scheduling latency become the primary bottleneck. Under this profile, Velocity's zero-allocation binary protocol (<5μs round-trip) and overlapped DAG scheduler outperform LangGraph by **3.8x** (~796ms vs ~3,001ms p99 at concurrency 1000).
-- **Worker Pool Scaling & Fair-Capped Crossover**: Our variable pool size sweep (64 to 4096 workers) demonstrates that under matched connection and worker pool resource limits (concurrency 1000), Velocity consistently beats fair-capped raw MCP (`raw_mcp_baseline_capped`) at pool sizes 64 (**2.0x faster**: ~827ms vs ~1,639ms p99), 256 (**1.2x faster**), and 4096 (**1.2x faster**). Unlike Python coroutines—which suffer severe queue contention and OS file-descriptor degradation under bounded semaphores—Rust Tokio tasks scale cleanly to thousands of active workers without runtime degradation.
+- **Worker Pool Scaling & Fair-Capped Crossover**: Our variable pool size sweep (64 to 4096 workers) demonstrates that under matched connection and worker pool resource limits (concurrency 1000), Velocity consistently beats fair-capped raw MCP (`raw_mcp_baseline_capped`) at pool sizes 64 (**2.0x faster**: ~827ms vs ~1,639ms p99), 256 (**1.2x faster**), and 4096 (**1.2x faster**). Bounded worker pools in Velocity, when sized appropriately, close most but not all of the gap to unbounded coroutines.
 
 For full empirical data, generated charts, and methodology, see [`results/report.md`](results/report.md).
 
@@ -57,7 +57,7 @@ For full empirical data, generated charts, and methodology, see [`results/report
 
 With the v1 hypothesis empirically validated across both standard and low-latency profiles under fair resource constraints, future iterations target production deployment:
 
-1. **Work-Stealing Heuristic Refinement**: Advanced adaptive load-shedding and predictive thread-pool elasticity to fine-tune worker stealing under erratic multi-tenant burst traffic.
+1. **Adaptive Worker Pool Sizing**: Replacing fixed MPSC channel capacities with dynamic work-stealing pools that auto-scale between min/max thresholds during concurrency bursts, eliminating wait-queue contention while preventing OS resource exhaustion.
 2. **io_uring Transport Layer**: Integrating `tokio-uring` for Linux production environments to further reduce socket and pipe syscall overhead in sub-millisecond HFT control loops.
 3. **Live LLM Introspection Engine**: Replacing static benchmark task graphs with live streaming LLM token parsing to dynamically overlap speculative tool worker acquisition with model token generation.
 

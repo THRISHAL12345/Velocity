@@ -427,12 +427,12 @@ def generate_text_report(results: dict, output_path: Path):
     lines.append("The v1 release successfully validates the core systems pillars of the Velocity runtime:\n")
     lines.append("- **Pre-warmed Worker Pools**: Eliminated cold-start latency entirely; steady-state acquisition completes in under 10μs without OS syscalls or connection handshakes.")
     lines.append("- **Binary Wire Protocol**: Struct-packed length-prefixed binary framing bypassed JSON allocation entirely, keeping encoding overhead invisible even in microsecond workloads.")
-    lines.append("- **Overlapped DAG Scheduling & Work-Stealing**: Concurrently dispatched independent tool invocations, while dynamic work-stealing bounded worker pools scale cleanly without semaphore queue contention or OS resource exhaustion.\n")
+    lines.append("- **Overlapped DAG Scheduling**: Concurrently dispatched independent tool invocations, while bounded worker pools, when sized appropriately, close most but not all of the gap to unbounded coroutines (see §4 for the pool-size sweep and its limits).\n")
 
     # Section 7: v2 Roadmap
     lines.append("## 7. Known Limitations & v2 Roadmap\n")
     lines.append("With the v1 hypothesis empirically validated across standard and low-latency profiles under fair resource constraints, future iterations target production deployment:\n")
-    lines.append("1. **Work-Stealing Heuristic Refinement**: Advanced adaptive load-shedding and predictive thread-pool elasticity to fine-tune worker stealing under erratic multi-tenant burst traffic.")
+    lines.append("1. **Adaptive Worker Pool Sizing**: Replacing fixed MPSC channel capacities with dynamic work-stealing pools that auto-scale between min/max thresholds during concurrency bursts, eliminating wait-queue contention while preventing OS resource exhaustion.")
     lines.append("2. **io_uring Transport Layer**: Integrating `tokio-uring` for Linux production environments to further reduce socket/pipe syscall overhead in sub-millisecond HFT loops.")
     lines.append("3. **Live LLM Introspection Engine**: Replacing static benchmark task graphs with live streaming LLM token parsing to dynamically overlap speculative tool acquisition with model token generation.\n")
 
