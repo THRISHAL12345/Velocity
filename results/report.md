@@ -94,11 +94,6 @@ To investigate why unbounded Python coroutines can outperform a bounded Rust wor
 | 1024 | 342,271 | 140,531 | 152,996 | 615 | 1 | **0.4x faster** |
 | 4096 | 334,079 | 398,621 | 152,996 | 245 | 5 | **1.2x faster** |
 
-### Analysis: Why Tunable Pool Sizing Matters
-
-1. **Queuing Bottleneck at Pool Size 64**: When 1,000 tasks request 5,000 tool executions simultaneously against only 64 workers, tasks spend significant time in bounded MPSC channel wait queues. Unbounded Python coroutines avoid this queue by spawning 5,000 concurrent `asyncio.sleep` tasks without connection limits.
-2. **Rust Scalability Superiority**: When the pool size is scaled to 1024 or 4096, Velocity's p99 latency drops dramatically, comfortably beating raw MCP. Unlike Python coroutines—which degrade under memory, OS file-descriptor, and event-loop scheduling overhead when bounded semaphores are removed—Rust tokio tasks are lightweight enough to scale to thousands of active connections without runtime degradation.
-
 ### Workstream 1 Findings: Pool Size Sweep Analysis
 
 - **Crossover Threshold**: At concurrency=1000, Velocity's p99 latency remains above raw MCP's unbounded p99 even at pool_size=4096 (gap: 2.2x slower). This demonstrates that bounded worker pools require sufficient sizing or dynamic work-stealing when competing against unbounded coroutines.

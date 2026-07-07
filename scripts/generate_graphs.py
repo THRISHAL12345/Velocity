@@ -361,10 +361,7 @@ def generate_text_report(results: dict, output_path: Path):
     v_64_wait = results[v_64_k].get("avg_queue_wait_us", 0) if v_64_k in results else 0
     wait_pct = (v_64_wait / v_64_p50 * 100.0) if v_64_p50 > 0 else 0.0
     
-    lines.append("\n### Analysis: Why Tunable Pool Sizing Matters\n")
-    lines.append("1. **Queuing Bottleneck at Pool Size 64**: When 1,000 tasks request 5,000 tool executions simultaneously against only 64 workers, tasks spend significant time in bounded MPSC channel wait queues. Unbounded Python coroutines avoid this queue by spawning 5,000 concurrent `asyncio.sleep` tasks without connection limits.")
-    lines.append("2. **Rust Scalability Superiority**: When the pool size is scaled to 1024 or 4096, Velocity's p99 latency drops dramatically, comfortably beating raw MCP. Unlike Python coroutines—which degrade under memory, OS file-descriptor, and event-loop scheduling overhead when bounded semaphores are removed—Rust tokio tasks are lightweight enough to scale to thousands of active connections without runtime degradation.\n")
-    lines.append("### Workstream 1 Findings: Pool Size Sweep Analysis\n")
+    lines.append("\n### Workstream 1 Findings: Pool Size Sweep Analysis\n")
     if crossover_ps:
         lines.append(f"- **Crossover Threshold**: At concurrency=1000, Velocity's p99 latency drops below raw MCP's unbounded p99 at **pool_size={crossover_ps}**.")
     else:
