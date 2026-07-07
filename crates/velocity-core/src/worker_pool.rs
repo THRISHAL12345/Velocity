@@ -46,6 +46,8 @@ pub struct PoolStats {
     pub idle: usize,
     /// Total pool capacity.
     pub total: usize,
+    /// Number of requests queued waiting for an available worker.
+    pub queued: usize,
 }
 
 /// A handle to a worker acquired from the pool.
@@ -126,6 +128,8 @@ pub struct WorkerPool {
     pool_sizes: HashMap<String, usize>,
     /// Global counter for active workers (acquired but not yet released).
     active_counts: HashMap<String, Arc<AtomicU64>>,
+    /// Global counter for queued requests waiting for workers.
+    queued_counts: HashMap<String, Arc<AtomicU64>>,
 }
 
 impl WorkerPool {
@@ -140,6 +144,7 @@ impl WorkerPool {
         let mut return_txs = HashMap::new();
         let mut pool_sizes = HashMap::new();
         let mut active_counts = HashMap::new();
+        let mut queued_counts = HashMap::new();
         let next_worker_id = AtomicU64::new(0);
 
         for tool_name in &tool_names {
@@ -171,6 +176,7 @@ impl WorkerPool {
             return_txs.insert(tool_name.to_string(), return_tx);
             pool_sizes.insert(tool_name.to_string(), config.pool_size);
             active_counts.insert(tool_name.to_string(), Arc::new(AtomicU64::new(0)));
+            queued_counts.insert(tool_name.to_string(), Arc::new(AtomicU64::new(0)));
 
             info!(
                 tool = *tool_name,
@@ -184,6 +190,7 @@ impl WorkerPool {
             _return_txs: return_txs,
             pool_sizes,
             active_counts,
+            queued_counts,
         }
     }
 
@@ -202,18 +209,40 @@ impl WorkerPool {
             .get(tool_name)
             .ok_or_else(|| PoolError::UnknownTool(tool_name.to_string()))?;
 
+        let queued_count = self
+            .queued_counts
+            .get(tool_name)
+            .ok_or_else(|| PoolError::UnknownTool(tool_name.to_string()))?;
+
         let mut rx = pool.lock().await;
-        match rx.recv().await {
-            Some(handle) => {
+        match rx.try_recv() {
+            Ok(handle) => {
                 active_count.fetch_add(1, Ordering::Relaxed);
                 debug!(
                     worker_id = handle.worker_id,
                     tool = tool_name,
-                    "worker acquired"
+                    "worker acquired (fast path)"
                 );
                 Ok(handle)
             }
-            None => Err(PoolError::Shutdown),
+            Err(mpsc::error::TryRecvError::Empty) => {
+                queued_count.fetch_add(1, Ordering::Relaxed);
+                let res = rx.recv().await;
+                queued_count.fetch_sub(1, Ordering::Relaxed);
+                match res {
+                    Some(handle) => {
+                        active_count.fetch_add(1, Ordering::Relaxed);
+                        debug!(
+                            worker_id = handle.worker_id,
+                            tool = tool_name,
+                            "worker acquired (after queuing)"
+                        );
+                        Ok(handle)
+                    }
+                    None => Err(PoolError::Shutdown),
+                }
+            }
+            Err(mpsc::error::TryRecvError::Disconnected) => Err(PoolError::Shutdown),
         }
     }
 
@@ -252,11 +281,16 @@ impl WorkerPool {
             .get(tool_name)?
             .load(Ordering::Relaxed) as usize;
         let idle = total.saturating_sub(active);
+        let queued = self
+            .queued_counts
+            .get(tool_name)?
+            .load(Ordering::Relaxed) as usize;
 
         Some(PoolStats {
             active,
             idle,
             total,
+            queued,
         })
     }
 
@@ -281,11 +315,12 @@ mod tests {
         let handle = pool.acquire("mock_db").await.unwrap();
         assert_eq!(handle.tool_name, "mock_db");
 
-        // Stats should show 1 active, 1 idle
+        // Stats should show 1 active, 1 idle, 0 queued
         let stats = pool.stats("mock_db").unwrap();
         assert_eq!(stats.active, 1);
         assert_eq!(stats.idle, 1);
         assert_eq!(stats.total, 2);
+        assert_eq!(stats.queued, 0);
 
         // Release worker
         pool.release(handle);
@@ -293,10 +328,11 @@ mod tests {
         // Give the channel a moment to process
         tokio::task::yield_now().await;
 
-        // Stats should show 0 active, 2 idle
+        // Stats should show 0 active, 2 idle, 0 queued
         let stats = pool.stats("mock_db").unwrap();
         assert_eq!(stats.active, 0);
         assert_eq!(stats.idle, 2);
+        assert_eq!(stats.queued, 0);
     }
 
     #[tokio::test]
@@ -310,6 +346,7 @@ mod tests {
         let stats = pool.stats("mock_http").unwrap();
         assert_eq!(stats.active, 3);
         assert_eq!(stats.idle, 0);
+        assert_eq!(stats.queued, 0);
 
         pool.release(h1);
         pool.release(h2);
@@ -363,6 +400,7 @@ mod tests {
             assert_eq!(s.total, 4);
             assert_eq!(s.idle, 4);
             assert_eq!(s.active, 0);
+            assert_eq!(s.queued, 0);
         }
     }
 
