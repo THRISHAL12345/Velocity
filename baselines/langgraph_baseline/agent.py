@@ -1,22 +1,20 @@
 """LangGraph baseline for the Velocity benchmark.
 
-Implements the identical `process_order` task graph using an idiomatic
-LangGraph StateGraph per Section 8.1 of AGENTS.md:
-  Step 1: mock_db("lookup_account", account_id)     [no deps]
-  Step 2: mock_db("check_inventory", sku)            [no deps, independent of 1]
-  Step 3: mock_http("get_pricing", sku)              [depends on 2]
-  Step 4: mock_db("write_order_record", ...)         [depends on 1 & 3]
-  Step 5: mock_file("write_confirmation_log", ...)   [depends on 4]
+Implements the identical `process_order` and `hft_tick` task graphs using an
+idiomatic LangGraph StateGraph per Section 8.1 of AGENTS.md:
+  - process_order: web-app style workload (ms scale)
+  - hft_tick: low-latency trading workload (μs scale)
 
 This baseline uses LangGraph's compiled StateGraph engine, representing
 a competent, idiomatic LangGraph implementation without artificial handicapping.
 """
 
+import argparse
 import asyncio
 import json
+import statistics
 import sys
 import time
-import statistics
 from pathlib import Path
 from typing import TypedDict, Annotated, Any, Dict
 
@@ -29,6 +27,8 @@ def merge_dicts(left: dict, right: dict) -> dict:
     return {**left, **right}
 
 
+# ─── process_order Task Graph (ms scale) ─────────────────────────────────────
+
 class OrderState(TypedDict):
     account_id: str
     sku: str
@@ -38,28 +38,28 @@ class OrderState(TypedDict):
 
 async def step_1_node(state: OrderState) -> dict:
     t0 = time.perf_counter_ns()
-    res = await mock_db("lookup_account", account_id=state["account_id"])
+    res = await mock_db("lookup_account", profile="process_order", account_id=state["account_id"])
     dt = (time.perf_counter_ns() - t0) / 1000
     return {"step_times": {"step_1": dt}, "results": {"step_1": res}}
 
 
 async def step_2_node(state: OrderState) -> dict:
     t0 = time.perf_counter_ns()
-    res = await mock_db("check_inventory", sku=state["sku"])
+    res = await mock_db("check_inventory", profile="process_order", sku=state["sku"])
     dt = (time.perf_counter_ns() - t0) / 1000
     return {"step_times": {"step_2": dt}, "results": {"step_2": res}}
 
 
 async def step_3_node(state: OrderState) -> dict:
     t0 = time.perf_counter_ns()
-    res = await mock_http("get_pricing", sku=state["sku"])
+    res = await mock_http("get_pricing", profile="process_order", sku=state["sku"])
     dt = (time.perf_counter_ns() - t0) / 1000
     return {"step_times": {"step_3": dt}, "results": {"step_3": res}}
 
 
 async def step_4_node(state: OrderState) -> dict:
     t0 = time.perf_counter_ns()
-    res = await mock_db("write_order_record", account_id=state["account_id"], sku=state["sku"])
+    res = await mock_db("write_order_record", profile="process_order", account_id=state["account_id"], sku=state["sku"])
     dt = (time.perf_counter_ns() - t0) / 1000
     return {"step_times": {"step_4": dt}, "results": {"step_4": res}}
 
@@ -67,12 +67,11 @@ async def step_4_node(state: OrderState) -> dict:
 async def step_5_node(state: OrderState) -> dict:
     t0 = time.perf_counter_ns()
     order_id = state["results"].get("step_4", {}).get("order_id", "UNKNOWN")
-    res = await mock_file("write_confirmation_log", order_id=order_id)
+    res = await mock_file("write_confirmation_log", profile="process_order", order_id=order_id)
     dt = (time.perf_counter_ns() - t0) / 1000
     return {"step_times": {"step_5": dt}, "results": {"step_5": res}}
 
 
-# Compile the LangGraph DAG
 builder = StateGraph(OrderState)
 builder.add_node("step_1", step_1_node)
 builder.add_node("step_2", step_2_node)
@@ -80,36 +79,103 @@ builder.add_node("step_3", step_3_node)
 builder.add_node("step_4", step_4_node)
 builder.add_node("step_5", step_5_node)
 
-# Steps 1 & 2 launch concurrently from START
 builder.add_edge(START, "step_1")
 builder.add_edge(START, "step_2")
-
-# Step 3 depends on step 2
 builder.add_edge("step_2", "step_3")
-
-# Step 4 depends on steps 1 & 3 (synchronization barrier)
 builder.add_edge("step_1", "step_4")
 builder.add_edge("step_3", "step_4")
-
-# Step 5 depends on step 4
 builder.add_edge("step_4", "step_5")
 builder.add_edge("step_5", END)
 
 graph = builder.compile()
 
 
-async def process_order(account_id: str, sku: str) -> dict:
-    """Execute the process_order task graph via LangGraph."""
-    start = time.perf_counter_ns()
-    initial_state: OrderState = {
-        "account_id": account_id,
-        "sku": sku,
-        "step_times": {},
-        "results": {},
-    }
-    final_state = await graph.ainvoke(initial_state)
-    total_us = (time.perf_counter_ns() - start) / 1000
+# ─── hft_tick Task Graph (μs scale) ──────────────────────────────────────────
 
+class HFTState(TypedDict):
+    symbol: str
+    account_id: str
+    step_times: Annotated[dict, merge_dicts]
+    results: Annotated[dict, merge_dicts]
+
+
+async def hft_step_1_node(state: HFTState) -> dict:
+    t0 = time.perf_counter_ns()
+    res = await mock_db("lookup_orderbook", profile="hft_tick", symbol=state["symbol"])
+    dt = (time.perf_counter_ns() - t0) / 1000
+    return {"step_times": {"step_1": dt}, "results": {"step_1": res}}
+
+
+async def hft_step_2_node(state: HFTState) -> dict:
+    t0 = time.perf_counter_ns()
+    res = await mock_db("check_risk_limit", profile="hft_tick", account_id=state["account_id"])
+    dt = (time.perf_counter_ns() - t0) / 1000
+    return {"step_times": {"step_2": dt}, "results": {"step_2": res}}
+
+
+async def hft_step_3_node(state: HFTState) -> dict:
+    t0 = time.perf_counter_ns()
+    res = await mock_http("calculate_alpha", profile="hft_tick", symbol=state["symbol"])
+    dt = (time.perf_counter_ns() - t0) / 1000
+    return {"step_times": {"step_3": dt}, "results": {"step_3": res}}
+
+
+async def hft_step_4_node(state: HFTState) -> dict:
+    t0 = time.perf_counter_ns()
+    res = await mock_db("write_trade_record", profile="hft_tick", symbol=state["symbol"], account_id=state["account_id"])
+    dt = (time.perf_counter_ns() - t0) / 1000
+    return {"step_times": {"step_4": dt}, "results": {"step_4": res}}
+
+
+async def hft_step_5_node(state: HFTState) -> dict:
+    t0 = time.perf_counter_ns()
+    trade_id = state["results"].get("step_4", {}).get("trade_id", "UNKNOWN")
+    res = await mock_file("log_audit", profile="hft_tick", trade_id=trade_id)
+    dt = (time.perf_counter_ns() - t0) / 1000
+    return {"step_times": {"step_5": dt}, "results": {"step_5": res}}
+
+
+hft_builder = StateGraph(HFTState)
+hft_builder.add_node("step_1", hft_step_1_node)
+hft_builder.add_node("step_2", hft_step_2_node)
+hft_builder.add_node("step_3", hft_step_3_node)
+hft_builder.add_node("step_4", hft_step_4_node)
+hft_builder.add_node("step_5", hft_step_5_node)
+
+hft_builder.add_edge(START, "step_1")
+hft_builder.add_edge(START, "step_2")
+hft_builder.add_edge("step_1", "step_3")
+hft_builder.add_edge("step_2", "step_3")
+hft_builder.add_edge("step_3", "step_4")
+hft_builder.add_edge("step_4", "step_5")
+hft_builder.add_edge("step_5", END)
+
+hft_graph = hft_builder.compile()
+
+
+# ─── Task execution ──────────────────────────────────────────────────────────
+
+async def execute_task(task_id: int, profile: str = "process_order") -> dict:
+    """Execute the specified task graph via LangGraph."""
+    start = time.perf_counter_ns()
+    if profile == "hft_tick":
+        initial_state: HFTState = {
+            "symbol": f"SYM-{task_id:05d}",
+            "account_id": f"TRADER-{task_id:05d}",
+            "step_times": {},
+            "results": {},
+        }
+        final_state = await hft_graph.ainvoke(initial_state)
+    else:
+        initial_state: OrderState = {
+            "account_id": f"ACC-{task_id:05d}",
+            "sku": f"SKU-{task_id:05d}",
+            "step_times": {},
+            "results": {},
+        }
+        final_state = await graph.ainvoke(initial_state)
+
+    total_us = (time.perf_counter_ns() - start) / 1000
     return {
         "total_us": total_us,
         "step_times": final_state["step_times"],
@@ -117,12 +183,14 @@ async def process_order(account_id: str, sku: str) -> dict:
     }
 
 
-async def run_benchmark(concurrency: int, iterations: int, warmup: int) -> dict:
+# ─── Benchmark harness ──────────────────────────────────────────────────────
+
+async def run_benchmark(concurrency: int, iterations: int, warmup: int, profile: str = "process_order") -> dict:
     """Run the benchmark at a given concurrency level."""
 
     # Warm-up
-    for _ in range(warmup):
-        await process_order("WARMUP-ACC", "WARMUP-SKU")
+    for i in range(warmup):
+        await execute_task(i, profile)
 
     all_task_times = []
     all_step_times = {f"step_{i}": [] for i in range(1, 6)}
@@ -131,9 +199,8 @@ async def run_benchmark(concurrency: int, iterations: int, warmup: int) -> dict:
     for iteration in range(iterations):
         start = time.perf_counter_ns()
 
-        # Launch concurrent tasks
         tasks = [
-            process_order(f"ACC-{i:05d}", f"SKU-{i:05d}")
+            execute_task(i, profile)
             for i in range(concurrency)
         ]
         results = await asyncio.gather(*tasks)
@@ -183,13 +250,13 @@ async def run_benchmark(concurrency: int, iterations: int, warmup: int) -> dict:
             "count": len(times),
         }
 
-    # Compute steady-state average (excluding first batch)
     steady_times = all_task_times[concurrency:] if len(all_task_times) > concurrency else all_task_times
     steady_state_avg = statistics.mean(steady_times) if steady_times else 0
 
     return {
         "contender": "langgraph",
         "concurrency": concurrency,
+        "profile": profile,
         "task_stats": task_stats,
         "step_stats": step_stats,
         "cold_start_us": cold_start_us,
@@ -201,13 +268,20 @@ async def main():
     """Run benchmarks at all concurrency levels and output results."""
     if hasattr(sys.stdout, 'reconfigure'):
         sys.stdout.reconfigure(encoding='utf-8')
-    concurrency_levels = [1, 10, 100, 1000]
+
+    parser = argparse.ArgumentParser(description="LangGraph Baseline Benchmark")
+    parser.add_argument("--concurrency", default="1,10,100,1000", help="Comma-separated concurrency levels")
+    parser.add_argument("--profile", default="process_order", help="Task profile (process_order or hft_tick)")
+    args = parser.parse_args()
+
+    concurrency_levels = [int(x.strip()) for x in args.concurrency.split(',') if x.strip()]
     warmup = 5
     iterations = 50
     output_dir = Path(__file__).parent.parent.parent / "results" / "raw"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     print("\n🕸️ LangGraph Baseline Benchmark", flush=True)
+    print(f"   Profile: {args.profile}", flush=True)
     print(f"   Warm-up: {warmup} iterations", flush=True)
     print(f"   Measured: {iterations} iterations", flush=True)
     print(f"   Concurrency levels: {concurrency_levels}\n", flush=True)
@@ -217,10 +291,9 @@ async def main():
     for concurrency in concurrency_levels:
         print(f"⏱  Running benchmark at concurrency={concurrency}...", flush=True)
 
-        report = await run_benchmark(concurrency, iterations, warmup)
+        report = await run_benchmark(concurrency, iterations, warmup, args.profile)
 
-        # Write results
-        filename = f"langgraph_{concurrency}"
+        filename = f"langgraph_hft_{concurrency}" if args.profile == "hft_tick" else f"langgraph_{concurrency}"
         with open(output_dir / f"{filename}.json", "w", encoding="utf-8") as f:
             json.dump(report, f, indent=2)
         with open(output_dir / f"{filename}.csv", "w", encoding="utf-8") as f:

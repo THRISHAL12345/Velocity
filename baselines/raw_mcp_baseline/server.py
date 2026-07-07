@@ -1,87 +1,106 @@
 """Raw MCP-style baseline for the Velocity benchmark.
 
-Implements the identical `process_order` task graph using a simulated
-MCP-over-stdio pattern: JSON serialization/deserialization on every
+Implements the identical `process_order` and `hft_tick` task graphs using a
+simulated MCP-over-stdio pattern: JSON serialization/deserialization on every
 tool call hop, with no orchestration framework.
 
-This represents the "no framework" floor — raw JSON-based tool dispatch
-with full serialization overhead, matching what a bare MCP server does.
-
-Task graph (identical dependency structure):
-  Step 1: mock_db("lookup_account", account_id)     [no deps]
-  Step 2: mock_db("check_inventory", sku)            [no deps, independent of 1]
-  Step 3: mock_http("get_pricing", sku)              [depends on 2]
-  Step 4: mock_db("write_order_record", ...)         [depends on 1 & 3]
-  Step 5: mock_file("write_confirmation_log", ...)   [depends on 4]
+Supports optional bounded concurrency via asyncio.Semaphore (`--pool-size`)
+to ensure fair, apples-to-apples load testing against bounded worker pools.
 """
 
+import argparse
 import asyncio
 import json
 import random
 import statistics
-import time
 import sys
+import time
 from pathlib import Path
 
 
 # ─── Mock tools (identical delay distributions) ──────────────────────────────
 
-async def mock_db_raw(operation: str, args: dict) -> dict:
-    """Simulates a database query with 5-15ms jittered delay."""
-    delay = random.uniform(0.005, 0.015)
-    await asyncio.sleep(delay)
-
-    if operation == "lookup_account":
-        return {
-            "account_id": args.get("account_id", "UNKNOWN"),
-            "name": "Test User",
-            "balance": 1000.50,
-            "status": "active",
-        }
-    elif operation == "check_inventory":
-        return {
-            "sku": args.get("sku", "UNKNOWN"),
-            "quantity": 42,
-            "warehouse": "WH-001",
-        }
-    elif operation == "write_order_record":
-        return {"order_id": "ORD-99001", "status": "confirmed"}
+async def mock_db_raw(operation: str, args: dict, profile: str = "process_order") -> dict:
+    """Simulates a database query."""
+    if profile == "hft_tick":
+        delay = random.uniform(0.000050, 0.000150)
+        await asyncio.sleep(delay)
+        if operation == "lookup_orderbook":
+            return {"symbol": args.get("symbol", "UNKNOWN"), "bids": 10, "asks": 10}
+        elif operation == "check_risk_limit":
+            return {"account_id": args.get("account_id", "UNKNOWN"), "limit_ok": True, "margin": 100000}
+        elif operation == "write_trade_record":
+            return {"trade_id": "TRD-1001", "status": "confirmed"}
+        else:
+            raise ValueError(f"unknown hft db operation: {operation}")
     else:
-        raise ValueError(f"unknown db operation: {operation}")
+        delay = random.uniform(0.005, 0.015)
+        await asyncio.sleep(delay)
+        if operation == "lookup_account":
+            return {
+                "account_id": args.get("account_id", "UNKNOWN"),
+                "name": "Test User",
+                "balance": 1000.50,
+                "status": "active",
+            }
+        elif operation == "check_inventory":
+            return {
+                "sku": args.get("sku", "UNKNOWN"),
+                "quantity": 42,
+                "warehouse": "WH-001",
+            }
+        elif operation == "write_order_record":
+            return {"order_id": "ORD-99001", "status": "confirmed"}
+        else:
+            raise ValueError(f"unknown db operation: {operation}")
 
 
-async def mock_http_raw(operation: str, args: dict) -> dict:
-    """Simulates an external API call with 20-50ms jittered delay."""
-    delay = random.uniform(0.020, 0.050)
-    await asyncio.sleep(delay)
-
-    if operation == "get_pricing":
-        return {
-            "sku": args.get("sku", "UNKNOWN"),
-            "unit_price": 29.99,
-            "currency": "USD",
-            "available": True,
-        }
+async def mock_http_raw(operation: str, args: dict, profile: str = "process_order") -> dict:
+    """Simulates an external API call."""
+    if profile == "hft_tick":
+        delay = random.uniform(0.000200, 0.000500)
+        await asyncio.sleep(delay)
+        if operation == "calculate_alpha":
+            return {"symbol": args.get("symbol", "UNKNOWN"), "alpha_score": 0.85, "confidence": 0.92}
+        else:
+            raise ValueError(f"unknown hft http operation: {operation}")
     else:
-        raise ValueError(f"unknown http operation: {operation}")
+        delay = random.uniform(0.020, 0.050)
+        await asyncio.sleep(delay)
+        if operation == "get_pricing":
+            return {
+                "sku": args.get("sku", "UNKNOWN"),
+                "unit_price": 29.99,
+                "currency": "USD",
+                "available": True,
+            }
+        else:
+            raise ValueError(f"unknown http operation: {operation}")
 
 
-async def mock_file_raw(operation: str, args: dict) -> dict:
-    """Simulates file I/O with 1-3ms jittered delay."""
-    delay = random.uniform(0.001, 0.003)
-    await asyncio.sleep(delay)
-
-    if operation == "write_confirmation_log":
-        order_id = args.get("order_id", "UNKNOWN")
-        return {
-            "file": f"/var/log/orders/{order_id}.log",
-            "bytes_written": 256,
-            "status": "ok",
-        }
-    elif operation == "read":
-        return {"content": "file contents here", "bytes_read": 128}
+async def mock_file_raw(operation: str, args: dict, profile: str = "process_order") -> dict:
+    """Simulates file I/O."""
+    if profile == "hft_tick":
+        delay = random.uniform(0.000010, 0.000030)
+        await asyncio.sleep(delay)
+        if operation == "log_audit":
+            return {"file": "/var/log/hft/audit.log", "bytes_written": 64, "status": "ok"}
+        else:
+            raise ValueError(f"unknown hft file operation: {operation}")
     else:
-        raise ValueError(f"unknown file operation: {operation}")
+        delay = random.uniform(0.001, 0.003)
+        await asyncio.sleep(delay)
+        if operation == "write_confirmation_log":
+            order_id = args.get("order_id", "UNKNOWN")
+            return {
+                "file": f"/var/log/orders/{order_id}.log",
+                "bytes_written": 256,
+                "status": "ok",
+            }
+        elif operation == "read":
+            return {"content": "file contents here", "bytes_read": 128}
+        else:
+            raise ValueError(f"unknown file operation: {operation}")
 
 
 # ─── MCP-style JSON serialization layer ──────────────────────────────────────
@@ -93,13 +112,7 @@ TOOL_REGISTRY = {
 }
 
 
-async def mcp_tool_call(tool_name: str, operation: str, args: dict) -> dict:
-    """Simulates an MCP tool call with full JSON serialization overhead.
-
-    This adds the JSON encode/decode round-trip that a real MCP server
-    would perform on every tool call — exactly the overhead Velocity
-    aims to eliminate with its binary protocol.
-    """
+async def _mcp_tool_call_inner(tool_name: str, operation: str, args: dict, profile: str) -> dict:
     # Serialize request (as MCP would)
     request_json = json.dumps({
         "tool": tool_name,
@@ -115,7 +128,7 @@ async def mcp_tool_call(tool_name: str, operation: str, args: dict) -> dict:
     if tool_fn is None:
         raise ValueError(f"unknown tool: {request['tool']}")
 
-    result = await tool_fn(request["operation"], request["args"])
+    result = await tool_fn(request["operation"], request["args"], profile)
 
     # Serialize response (as MCP server would)
     response_json = json.dumps({"result": result, "success": True})
@@ -126,10 +139,19 @@ async def mcp_tool_call(tool_name: str, operation: str, args: dict) -> dict:
     return response["result"]
 
 
+async def mcp_tool_call(tool_name: str, operation: str, args: dict, profile: str = "process_order", semaphore: asyncio.Semaphore = None) -> dict:
+    """Simulates an MCP tool call with full JSON serialization overhead and optional concurrency cap."""
+    if semaphore is not None:
+        async with semaphore:
+            return await _mcp_tool_call_inner(tool_name, operation, args, profile)
+    else:
+        return await _mcp_tool_call_inner(tool_name, operation, args, profile)
+
+
 # ─── Task execution ──────────────────────────────────────────────────────────
 
-async def process_order_mcp(account_id: str, sku: str) -> dict:
-    """Execute process_order with MCP-style serialization on every hop.
+async def execute_task_mcp(task_id: int, profile: str = "process_order", semaphore: asyncio.Semaphore = None) -> dict:
+    """Execute task graph with MCP-style serialization on every hop.
 
     SERIAL execution — no concurrent overlap. This is what raw MCP does:
     each tool call is fully serialized before the next begins.
@@ -137,60 +159,99 @@ async def process_order_mcp(account_id: str, sku: str) -> dict:
     start = time.perf_counter_ns()
     step_times = {}
 
-    # Step 1: lookup_account (serial)
-    s1_start = time.perf_counter_ns()
-    result_1 = await mcp_tool_call("mock_db", "lookup_account", {"account_id": account_id})
-    step_times["step_1"] = (time.perf_counter_ns() - s1_start) / 1000
+    if profile == "hft_tick":
+        symbol = f"SYM-{task_id:05d}"
+        account_id = f"TRADER-{task_id:05d}"
 
-    # Step 2: check_inventory (serial — MCP doesn't overlap)
-    s2_start = time.perf_counter_ns()
-    result_2 = await mcp_tool_call("mock_db", "check_inventory", {"sku": sku})
-    step_times["step_2"] = (time.perf_counter_ns() - s2_start) / 1000
+        # Step 1: lookup_orderbook
+        s1_start = time.perf_counter_ns()
+        result_1 = await mcp_tool_call("mock_db", "lookup_orderbook", {"symbol": symbol}, profile, semaphore)
+        step_times["step_1"] = (time.perf_counter_ns() - s1_start) / 1000
 
-    # Step 3: get_pricing (depends on step 2)
-    s3_start = time.perf_counter_ns()
-    result_3 = await mcp_tool_call("mock_http", "get_pricing", {"sku": sku})
-    step_times["step_3"] = (time.perf_counter_ns() - s3_start) / 1000
+        # Step 2: check_risk_limit (serial in MCP)
+        s2_start = time.perf_counter_ns()
+        result_2 = await mcp_tool_call("mock_db", "check_risk_limit", {"account_id": account_id}, profile, semaphore)
+        step_times["step_2"] = (time.perf_counter_ns() - s2_start) / 1000
 
-    # Step 4: write_order_record (depends on steps 1 & 3)
-    s4_start = time.perf_counter_ns()
-    result_4 = await mcp_tool_call(
-        "mock_db", "write_order_record",
-        {"account_id": account_id, "sku": sku}
-    )
-    step_times["step_4"] = (time.perf_counter_ns() - s4_start) / 1000
+        # Step 3: calculate_alpha
+        s3_start = time.perf_counter_ns()
+        result_3 = await mcp_tool_call("mock_http", "calculate_alpha", {"symbol": symbol}, profile, semaphore)
+        step_times["step_3"] = (time.perf_counter_ns() - s3_start) / 1000
 
-    # Step 5: write_confirmation_log (depends on step 4)
-    s5_start = time.perf_counter_ns()
-    result_5 = await mcp_tool_call(
-        "mock_file", "write_confirmation_log",
-        {"order_id": result_4.get("order_id", "UNKNOWN")}
-    )
-    step_times["step_5"] = (time.perf_counter_ns() - s5_start) / 1000
+        # Step 4: write_trade_record
+        s4_start = time.perf_counter_ns()
+        result_4 = await mcp_tool_call(
+            "mock_db", "write_trade_record",
+            {"symbol": symbol, "account_id": account_id}, profile, semaphore
+        )
+        step_times["step_4"] = (time.perf_counter_ns() - s4_start) / 1000
+
+        # Step 5: log_audit
+        s5_start = time.perf_counter_ns()
+        result_5 = await mcp_tool_call("mock_file", "log_audit", {"trade_id": "TRD-1001"}, profile, semaphore)
+        step_times["step_5"] = (time.perf_counter_ns() - s5_start) / 1000
+
+        results = {
+            "step_1": result_1, "step_2": result_2, "step_3": result_3,
+            "step_4": result_4, "step_5": result_5,
+        }
+    else:
+        account_id = f"ACC-{task_id:05d}"
+        sku = f"SKU-{task_id:05d}"
+
+        # Step 1: lookup_account
+        s1_start = time.perf_counter_ns()
+        result_1 = await mcp_tool_call("mock_db", "lookup_account", {"account_id": account_id}, profile, semaphore)
+        step_times["step_1"] = (time.perf_counter_ns() - s1_start) / 1000
+
+        # Step 2: check_inventory (serial)
+        s2_start = time.perf_counter_ns()
+        result_2 = await mcp_tool_call("mock_db", "check_inventory", {"sku": sku}, profile, semaphore)
+        step_times["step_2"] = (time.perf_counter_ns() - s2_start) / 1000
+
+        # Step 3: get_pricing
+        s3_start = time.perf_counter_ns()
+        result_3 = await mcp_tool_call("mock_http", "get_pricing", {"sku": sku}, profile, semaphore)
+        step_times["step_3"] = (time.perf_counter_ns() - s3_start) / 1000
+
+        # Step 4: write_order_record
+        s4_start = time.perf_counter_ns()
+        result_4 = await mcp_tool_call(
+            "mock_db", "write_order_record",
+            {"account_id": account_id, "sku": sku}, profile, semaphore
+        )
+        step_times["step_4"] = (time.perf_counter_ns() - s4_start) / 1000
+
+        # Step 5: write_confirmation_log
+        s5_start = time.perf_counter_ns()
+        result_5 = await mcp_tool_call(
+            "mock_file", "write_confirmation_log",
+            {"order_id": result_4.get("order_id", "UNKNOWN")}, profile, semaphore
+        )
+        step_times["step_5"] = (time.perf_counter_ns() - s5_start) / 1000
+
+        results = {
+            "step_1": result_1, "step_2": result_2, "step_3": result_3,
+            "step_4": result_4, "step_5": result_5,
+        }
 
     total_us = (time.perf_counter_ns() - start) / 1000
-
     return {
         "total_us": total_us,
         "step_times": step_times,
-        "results": {
-            "step_1": result_1,
-            "step_2": result_2,
-            "step_3": result_3,
-            "step_4": result_4,
-            "step_5": result_5,
-        },
+        "results": results,
     }
 
 
 # ─── Benchmark harness ──────────────────────────────────────────────────────
 
-async def run_benchmark(concurrency: int, iterations: int, warmup: int) -> dict:
+async def run_benchmark(concurrency: int, iterations: int, warmup: int, profile: str = "process_order", pool_size: int = None) -> dict:
     """Run the benchmark at a given concurrency level."""
+    semaphore = asyncio.Semaphore(pool_size) if pool_size is not None else None
 
     # Warm-up
-    for _ in range(warmup):
-        await process_order_mcp("WARMUP-ACC", "WARMUP-SKU")
+    for i in range(warmup):
+        await execute_task_mcp(i, profile, semaphore)
 
     all_task_times = []
     all_step_times = {f"step_{i}": [] for i in range(1, 6)}
@@ -199,9 +260,8 @@ async def run_benchmark(concurrency: int, iterations: int, warmup: int) -> dict:
     for iteration in range(iterations):
         start = time.perf_counter_ns()
 
-        # Launch concurrent tasks (even MCP can handle concurrent clients)
         tasks = [
-            process_order_mcp(f"ACC-{i:05d}", f"SKU-{i:05d}")
+            execute_task_mcp(i, profile, semaphore)
             for i in range(concurrency)
         ]
         results = await asyncio.gather(*tasks)
@@ -254,6 +314,8 @@ async def run_benchmark(concurrency: int, iterations: int, warmup: int) -> dict:
     return {
         "contender": "raw_mcp",
         "concurrency": concurrency,
+        "pool_size": pool_size if pool_size is not None else 0,
+        "profile": profile,
         "task_stats": task_stats,
         "step_stats": step_stats,
         "cold_start_us": cold_start_us,
@@ -265,13 +327,22 @@ async def main():
     """Run benchmarks at all concurrency levels."""
     if hasattr(sys.stdout, 'reconfigure'):
         sys.stdout.reconfigure(encoding='utf-8')
-    concurrency_levels = [1, 10, 100, 1000]
+
+    parser = argparse.ArgumentParser(description="Raw MCP Baseline Benchmark")
+    parser.add_argument("--concurrency", default="1,10,100,1000", help="Comma-separated concurrency levels")
+    parser.add_argument("--profile", default="process_order", help="Task profile (process_order or hft_tick)")
+    parser.add_argument("--pool-size", type=int, default=None, help="Bounded concurrency limit (semaphore cap)")
+    args = parser.parse_args()
+
+    concurrency_levels = [int(x.strip()) for x in args.concurrency.split(',') if x.strip()]
     warmup = 5
     iterations = 50
     output_dir = Path(__file__).parent.parent.parent / "results" / "raw"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     print("\n📡 Raw MCP Baseline Benchmark")
+    print(f"   Profile: {args.profile}")
+    print(f"   Pool size (semaphore cap): {args.pool_size if args.pool_size is not None else 'Unbounded'}")
     print(f"   Warm-up: {warmup} iterations")
     print(f"   Measured: {iterations} iterations")
     print(f"   Concurrency levels: {concurrency_levels}\n")
@@ -281,9 +352,19 @@ async def main():
     for concurrency in concurrency_levels:
         print(f"⏱  Running benchmark at concurrency={concurrency}...")
 
-        report = await run_benchmark(concurrency, iterations, warmup)
+        report = await run_benchmark(concurrency, iterations, warmup, args.profile, args.pool_size)
 
-        filename = f"raw_mcp_{concurrency}"
+        if args.pool_size is not None:
+            if args.profile == "hft_tick":
+                filename = f"raw_mcp_bounded{args.pool_size}_hft_{concurrency}"
+            else:
+                filename = f"raw_mcp_bounded{args.pool_size}_{concurrency}"
+        else:
+            if args.profile == "hft_tick":
+                filename = f"raw_mcp_hft_{concurrency}"
+            else:
+                filename = f"raw_mcp_{concurrency}"
+
         with open(output_dir / f"{filename}.json", "w", encoding="utf-8") as f:
             json.dump(report, f, indent=2)
         with open(output_dir / f"{filename}.csv", "w", encoding="utf-8") as f:
