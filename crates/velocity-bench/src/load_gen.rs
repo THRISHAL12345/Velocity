@@ -48,6 +48,10 @@ pub struct BenchResult {
     pub cold_start_us: u64,
     /// Steady-state average time (excluding cold start) in microseconds.
     pub steady_state_avg_us: u64,
+    /// Average time in microseconds spent waiting in queue for a worker.
+    pub avg_queue_wait_us: u64,
+    /// Pool construction time in milliseconds.
+    pub pool_construction_ms: u64,
 }
 
 /// Runs the Velocity benchmark at a given concurrency level.
@@ -58,10 +62,12 @@ pub async fn run_velocity_benchmark(
     config: &BenchConfig,
     tasks: Vec<Vec<ToolCallIntent>>,
 ) -> BenchResult {
+    let start_construct = Instant::now();
     let pool = Arc::new(WorkerPool::new(WorkerPoolConfig::with_profile(
         config.pool_size,
         &config.profile,
     )));
+    let pool_construction_ms = start_construct.elapsed().as_millis() as u64;
     let scheduler = Arc::new(Scheduler::new(Arc::clone(&pool)));
 
     // Warm-up phase: run a few iterations without measuring
@@ -130,11 +136,29 @@ pub async fn run_velocity_benchmark(
         all_task_times.iter().sum::<u64>() / all_task_times.len().max(1) as u64
     };
 
+    let mut total_wait_us = 0u64;
+    let mut active_pools = 0u64;
+    for tool in &["mock_db", "mock_http", "mock_file", "mock_memory_lookup", "mock_calc_engine", "mock_state_write"] {
+        if let Some(stats) = pool.stats(tool) {
+            if stats.total > 0 {
+                total_wait_us += stats.avg_wait_us;
+                active_pools += 1;
+            }
+        }
+    }
+    let avg_queue_wait_us = if active_pools > 0 {
+        total_wait_us / active_pools
+    } else {
+        0
+    };
+
     BenchResult {
         concurrency: config.concurrency,
         task_times_us: all_task_times,
         step_times_us: all_step_times,
         cold_start_us,
         steady_state_avg_us,
+        avg_queue_wait_us,
+        pool_construction_ms,
     }
 }

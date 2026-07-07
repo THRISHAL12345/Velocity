@@ -5,6 +5,9 @@
 
 use velocity_core::scheduler::{hft_tick_task, process_order_task, ToolCallIntent};
 
+#[allow(unused_imports)]
+pub use crate::pool_sweep::{run_pool_sweep, PoolSweepConfig, PoolSweepResult};
+
 /// Creates a single `process_order` task with the given parameters.
 pub fn create_process_order(account_id: &str, sku: &str) -> Vec<ToolCallIntent> {
     process_order_task(account_id, sku)

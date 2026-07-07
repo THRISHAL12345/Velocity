@@ -33,6 +33,8 @@ pub struct BenchReport {
     pub step_stats: HashMap<String, PercentileStats>,
     pub cold_start_us: u64,
     pub steady_state_avg_us: u64,
+    pub avg_queue_wait_us: u64,
+    pub pool_construction_ms: u64,
 }
 
 /// Computes percentile statistics from a slice of latency values.
@@ -89,6 +91,8 @@ pub fn generate_report(contender: &str, result: &BenchResult, config: &BenchConf
         step_stats,
         cold_start_us: result.cold_start_us,
         steady_state_avg_us: result.steady_state_avg_us,
+        avg_queue_wait_us: result.avg_queue_wait_us,
+        pool_construction_ms: result.pool_construction_ms,
     }
 }
 

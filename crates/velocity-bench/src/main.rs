@@ -5,6 +5,7 @@
 //! outputting results as CSV/JSON for comparison with baselines.
 
 mod load_gen;
+mod pool_sweep;
 mod report;
 mod task_definitions;
 
@@ -126,6 +127,21 @@ async fn main() {
             }
             if let Err(e) = write_csv_report(&report, &args.output_dir, tag.as_deref()) {
                 eprintln!("   ⚠ Failed to write CSV: {}", e);
+            }
+
+            if is_sweep {
+                let sweep_res = task_definitions::PoolSweepResult {
+                    pool_size,
+                    p50_us: report.task_stats.p50_us,
+                    p95_us: report.task_stats.p95_us,
+                    p99_us: report.task_stats.p99_us,
+                    avg_queue_wait_us: report.avg_queue_wait_us,
+                    pool_construction_ms: report.pool_construction_ms,
+                };
+                let sweep_file = args.output_dir.join(format!("pool_sweep_{}.json", pool_size));
+                if let Ok(json_str) = serde_json::to_string_pretty(&sweep_res) {
+                    let _ = std::fs::write(sweep_file, json_str);
+                }
             }
 
             println!(

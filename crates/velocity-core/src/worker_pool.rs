@@ -48,6 +48,8 @@ pub struct PoolStats {
     pub total: usize,
     /// Number of requests queued waiting for an available worker.
     pub queued: usize,
+    /// Average time in microseconds spent acquiring a worker from this pool.
+    pub avg_wait_us: u64,
 }
 
 /// A handle to a worker acquired from the pool.
@@ -153,6 +155,10 @@ pub struct WorkerPool {
     active_counts: HashMap<String, Arc<AtomicU64>>,
     /// Global counter for queued requests waiting for workers.
     queued_counts: HashMap<String, Arc<AtomicU64>>,
+    /// Total time in nanoseconds spent inside acquire() for this tool.
+    total_wait_ns: HashMap<String, Arc<AtomicU64>>,
+    /// Total number of successful acquisitions for this tool.
+    acquire_counts: HashMap<String, Arc<AtomicU64>>,
 }
 
 impl WorkerPool {
@@ -168,6 +174,8 @@ impl WorkerPool {
         let mut pool_sizes = HashMap::new();
         let mut active_counts = HashMap::new();
         let mut queued_counts = HashMap::new();
+        let mut total_wait_ns = HashMap::new();
+        let mut acquire_counts = HashMap::new();
         let next_worker_id = AtomicU64::new(0);
 
         for tool_name in &tool_names {
@@ -203,6 +211,8 @@ impl WorkerPool {
             pool_sizes.insert(tool_name.to_string(), config.pool_size);
             active_counts.insert(tool_name.to_string(), Arc::new(AtomicU64::new(0)));
             queued_counts.insert(tool_name.to_string(), Arc::new(AtomicU64::new(0)));
+            total_wait_ns.insert(tool_name.to_string(), Arc::new(AtomicU64::new(0)));
+            acquire_counts.insert(tool_name.to_string(), Arc::new(AtomicU64::new(0)));
 
             info!(
                 tool = *tool_name,
@@ -217,6 +227,8 @@ impl WorkerPool {
             pool_sizes,
             active_counts,
             queued_counts,
+            total_wait_ns,
+            acquire_counts,
         }
     }
 
@@ -225,6 +237,8 @@ impl WorkerPool {
     /// On the fast path (workers available), this is a single channel recv
     /// with zero heap allocation. Blocks asynchronously if all workers are busy.
     pub async fn acquire(&self, tool_name: &str) -> Result<WorkerHandle, PoolError> {
+        let start_time = std::time::Instant::now();
+
         let pool = self
             .pools
             .get(tool_name)
@@ -241,7 +255,7 @@ impl WorkerPool {
             .ok_or_else(|| PoolError::UnknownTool(tool_name.to_string()))?;
 
         let mut rx = pool.lock().await;
-        match rx.try_recv() {
+        let res = match rx.try_recv() {
             Ok(handle) => {
                 active_count.fetch_add(1, Ordering::Relaxed);
                 debug!(
@@ -269,7 +283,19 @@ impl WorkerPool {
                 }
             }
             Err(mpsc::error::TryRecvError::Disconnected) => Err(PoolError::Shutdown),
+        };
+
+        if res.is_ok() {
+            let elapsed_ns = start_time.elapsed().as_nanos() as u64;
+            if let Some(wait_ns) = self.total_wait_ns.get(tool_name) {
+                wait_ns.fetch_add(elapsed_ns, Ordering::Relaxed);
+            }
+            if let Some(count) = self.acquire_counts.get(tool_name) {
+                count.fetch_add(1, Ordering::Relaxed);
+            }
         }
+
+        res
     }
 
     /// Releases a worker back to the pool, making it available for reuse.
@@ -311,12 +337,26 @@ impl WorkerPool {
             .queued_counts
             .get(tool_name)?
             .load(Ordering::Relaxed) as usize;
+        let wait_ns = self
+            .total_wait_ns
+            .get(tool_name)?
+            .load(Ordering::Relaxed);
+        let count = self
+            .acquire_counts
+            .get(tool_name)?
+            .load(Ordering::Relaxed);
+        let avg_wait_us = if count > 0 {
+            (wait_ns / count) / 1000
+        } else {
+            0
+        };
 
         Some(PoolStats {
             active,
             idle,
             total,
             queued,
+            avg_wait_us,
         })
     }
 
@@ -427,7 +467,34 @@ mod tests {
             assert_eq!(s.idle, 4);
             assert_eq!(s.active, 0);
             assert_eq!(s.queued, 0);
+            assert_eq!(s.avg_wait_us, 0);
         }
+    }
+
+    #[tokio::test]
+    async fn test_queue_wait_tracking() {
+        let pool = Arc::new(WorkerPool::new(WorkerPoolConfig::new(1)));
+
+        // Acquire the only worker
+        let h1 = pool.acquire("mock_file").await.unwrap();
+
+        // Spawn a task that waits for the worker
+        let pool_clone = Arc::clone(&pool);
+        let handle = tokio::spawn(async move {
+            let h2 = pool_clone.acquire("mock_file").await.unwrap();
+            pool_clone.release(h2);
+        });
+
+        // Sleep briefly so the spawned task waits in queue
+        tokio::time::sleep(std::time::Duration::from_millis(15)).await;
+
+        // Release h1 so the spawned task can acquire it
+        pool.release(h1);
+        handle.await.unwrap();
+
+        let stats = pool.stats("mock_file").unwrap();
+        // At least 10ms (10,000us) average wait time across the 2 acquires
+        assert!(stats.avg_wait_us >= 5_000, "expected avg_wait_us >= 5000, got {}", stats.avg_wait_us);
     }
 
     #[tokio::test]
