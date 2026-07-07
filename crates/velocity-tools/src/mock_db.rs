@@ -14,17 +14,27 @@ use tokio::time::sleep;
 /// Configuration for the mock database executor.
 #[derive(Debug, Clone)]
 pub struct MockDbConfig {
-    /// Minimum simulated query latency in milliseconds.
-    pub min_delay_ms: u64,
-    /// Maximum simulated query latency in milliseconds.
-    pub max_delay_ms: u64,
+    /// Minimum simulated query latency in microseconds.
+    pub min_delay_us: u64,
+    /// Maximum simulated query latency in microseconds.
+    pub max_delay_us: u64,
 }
 
 impl Default for MockDbConfig {
     fn default() -> Self {
         Self {
-            min_delay_ms: 5,
-            max_delay_ms: 15,
+            min_delay_us: 5_000,
+            max_delay_us: 15_000,
+        }
+    }
+}
+
+impl MockDbConfig {
+    /// Sub-millisecond HFT profile configuration (50–500μs).
+    pub fn hft() -> Self {
+        Self {
+            min_delay_us: 50,
+            max_delay_us: 500,
         }
     }
 }
@@ -48,18 +58,23 @@ impl MockDb {
         Self::new(MockDbConfig::default())
     }
 
+    /// Creates a new `MockDb` with HFT configuration (50–500μs jitter).
+    pub fn with_hft() -> Self {
+        Self::new(MockDbConfig::hft())
+    }
+
     /// Executes a mock database operation.
     ///
     /// Simulates query latency with a uniformly distributed random delay
-    /// between `min_delay_ms` and `max_delay_ms`, then returns a fixed-schema
+    /// between `min_delay_us` and `max_delay_us`, then returns a fixed-schema
     /// response based on the operation name.
     pub async fn execute(&self, operation: &str, args: &[(String, String)]) -> Result<String, String> {
         // Simulate jittered query latency
         let delay = {
             let mut rng = rand::thread_rng();
-            rng.gen_range(self.config.min_delay_ms..=self.config.max_delay_ms)
+            rng.gen_range(self.config.min_delay_us..=self.config.max_delay_us)
         };
-        sleep(Duration::from_millis(delay)).await;
+        sleep(Duration::from_micros(delay)).await;
 
         match operation {
             "lookup_account" => {
@@ -86,6 +101,31 @@ impl MockDb {
             }
             "write_order_record" => {
                 Ok(r#"{"order_id":"ORD-99001","status":"confirmed"}"#.to_string())
+            }
+            "lookup_orderbook" => {
+                let symbol = args
+                    .iter()
+                    .find(|(k, _)| k == "symbol")
+                    .map(|(_, v)| v.as_str())
+                    .unwrap_or("UNKNOWN");
+                Ok(format!(
+                    r#"{{"symbol":"{}","bids":[[60000.0,1.5]],"asks":[[60001.0,2.0]]}}"#,
+                    symbol
+                ))
+            }
+            "check_risk_limit" => {
+                let account_id = args
+                    .iter()
+                    .find(|(k, _)| k == "account_id")
+                    .map(|(_, v)| v.as_str())
+                    .unwrap_or("UNKNOWN");
+                Ok(format!(
+                    r#"{{"account_id":"{}","risk_ok":true,"max_drawdown":0.02}}"#,
+                    account_id
+                ))
+            }
+            "write_trade_record" => {
+                Ok(r#"{"trade_id":"TRD-1001","status":"recorded"}"#.to_string())
             }
             _ => Err(format!("unknown db operation: {}", operation)),
         }
@@ -124,6 +164,21 @@ mod tests {
         let result = db.execute("write_order_record", &[]).await;
         assert!(result.is_ok());
         assert!(result.unwrap().contains("confirmed"));
+    }
+
+    #[tokio::test]
+    async fn test_hft_operations() {
+        let db = MockDb::with_hft();
+        let args = vec![("symbol".to_string(), "BTC-USD".to_string())];
+        let res = db.execute("lookup_orderbook", &args).await.unwrap();
+        assert!(res.contains("BTC-USD"));
+
+        let args2 = vec![("account_id".to_string(), "TRADER-01".to_string())];
+        let res2 = db.execute("check_risk_limit", &args2).await.unwrap();
+        assert!(res2.contains("risk_ok"));
+
+        let res3 = db.execute("write_trade_record", &[]).await.unwrap();
+        assert!(res3.contains("recorded"));
     }
 
     #[tokio::test]

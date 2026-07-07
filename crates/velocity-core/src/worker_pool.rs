@@ -107,11 +107,34 @@ impl ToolExecutor {
 pub struct WorkerPoolConfig {
     /// Number of workers per tool type. Default: 16.
     pub pool_size: usize,
+    /// Task profile name ("process_order" or "hft_tick"). Default: "process_order".
+    pub profile: String,
 }
 
 impl Default for WorkerPoolConfig {
     fn default() -> Self {
-        Self { pool_size: 16 }
+        Self {
+            pool_size: 16,
+            profile: "process_order".to_string(),
+        }
+    }
+}
+
+impl WorkerPoolConfig {
+    /// Creates a new configuration with the specified pool size and default profile.
+    pub fn new(pool_size: usize) -> Self {
+        Self {
+            pool_size,
+            profile: "process_order".to_string(),
+        }
+    }
+
+    /// Creates a new configuration with the specified pool size and task profile.
+    pub fn with_profile(pool_size: usize, profile: &str) -> Self {
+        Self {
+            pool_size,
+            profile: profile.to_string(),
+        }
     }
 }
 
@@ -154,10 +177,13 @@ impl WorkerPool {
             // Pre-warm: create all workers and send them into the channel
             for _ in 0..config.pool_size {
                 let worker_id = next_worker_id.fetch_add(1, Ordering::Relaxed);
-                let executor = match *tool_name {
-                    "mock_db" => ToolExecutor::Db(MockDb::with_defaults()),
-                    "mock_http" => ToolExecutor::Http(MockHttp::with_defaults()),
-                    "mock_file" => ToolExecutor::File(MockFile::with_defaults()),
+                let executor = match (*tool_name, config.profile.as_str()) {
+                    ("mock_db", "hft_tick") => ToolExecutor::Db(MockDb::with_hft()),
+                    ("mock_http", "hft_tick") => ToolExecutor::Http(MockHttp::with_hft()),
+                    ("mock_file", "hft_tick") => ToolExecutor::File(MockFile::with_hft()),
+                    ("mock_db", _) => ToolExecutor::Db(MockDb::with_defaults()),
+                    ("mock_http", _) => ToolExecutor::Http(MockHttp::with_defaults()),
+                    ("mock_file", _) => ToolExecutor::File(MockFile::with_defaults()),
                     _ => unreachable!(),
                 };
 
@@ -309,7 +335,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_acquire_and_release() {
-        let pool = WorkerPool::new(WorkerPoolConfig { pool_size: 2 });
+        let pool = WorkerPool::new(WorkerPoolConfig::new(2));
 
         // Acquire a worker
         let handle = pool.acquire("mock_db").await.unwrap();
@@ -337,7 +363,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_acquire_all_workers() {
-        let pool = WorkerPool::new(WorkerPoolConfig { pool_size: 3 });
+        let pool = WorkerPool::new(WorkerPoolConfig::new(3));
 
         let h1 = pool.acquire("mock_http").await.unwrap();
         let h2 = pool.acquire("mock_http").await.unwrap();
@@ -363,7 +389,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_worker_execute() {
-        let pool = WorkerPool::new(WorkerPoolConfig { pool_size: 1 });
+        let pool = WorkerPool::new(WorkerPoolConfig::new(1));
         let handle = pool.acquire("mock_db").await.unwrap();
 
         let args = vec![("account_id".to_string(), "ACC-999".to_string())];
@@ -376,7 +402,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_all_tool_types() {
-        let pool = WorkerPool::new(WorkerPoolConfig { pool_size: 1 });
+        let pool = WorkerPool::new(WorkerPoolConfig::new(1));
 
         // DB
         let h = pool.acquire("mock_db").await.unwrap();
@@ -393,7 +419,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_all_stats() {
-        let pool = WorkerPool::new(WorkerPoolConfig { pool_size: 4 });
+        let pool = WorkerPool::new(WorkerPoolConfig::new(4));
         let stats = pool.all_stats();
         assert_eq!(stats.len(), 3);
         for s in stats.values() {
@@ -406,7 +432,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_worker_reuse() {
-        let pool = WorkerPool::new(WorkerPoolConfig { pool_size: 1 });
+        let pool = WorkerPool::new(WorkerPoolConfig::new(1));
 
         // Acquire, execute, release, repeat — same worker should be reused
         for _ in 0..5 {
